@@ -40,6 +40,13 @@ require_once cot_langfile('users', 'module');
 require_once cot_incfile('forms');
 require_once cot_incfile('user_demo_admin', 'plug', 'functions');
 
+
+// Демо-админ не имеет права заходить в управление этим плагином
+if (cot_user_demo_admin_is_demo_user()) {
+    cot_die_message(930);
+}
+
+
 // Only real admins
 list(, , $isadmin) = cot_auth('admin', 'a');
 if (Cot::$usr['maingrp'] == COT_GROUP_SUPERADMINS) {
