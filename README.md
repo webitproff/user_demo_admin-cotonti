@@ -1,12 +1,12 @@
 # User Demo Admin Plugin Guide for Cotonti
 
-**Version:** 5.0.0  
+**Version:** 5.0.1  
 **Author:** webitproff  
 **License:** BSD  
 **Requirements:** Cotonti (current version), users module
-___
+
 > The "User Demo Admin" plugin is a completely new and experimental extension for CMF Cotonti. Use it at your own risk. The plugin has not been fully tested to make bold statements. For the most part, the plugin solves my problems (as a developer), but I recommend that you use it with extreme caution!
-___
+
 <img width="1168" height="784" alt="User Demo Admin для Cotonti" src="https://github.com/user-attachments/assets/4597c6ed-e9ab-437b-be2b-155c157cb433" />
 
 ---
@@ -19,6 +19,7 @@ ___
    - 2.2. Assigning Access Rights  
    - 2.3. Write Operation Protection  
    - 2.4. Creating a Demo Admin User  
+   - 2.5. Managing Permissions via Admin UI  
 3. [Demo Admin Interaction with the Site Interface](#3-demo-admin-interaction-with-the-site-interface)  
    - 3.1. What Can Be Viewed  
    - 3.2. Which Operations Are Forbidden  
@@ -37,26 +38,19 @@ ___
 
 ## 1. Plugin Overview and Purpose
 
-The **User Demo Admin** plugin is designed to create users with a special access level — a “demo administrator” or “read-only administrator”.
+The **User Demo Admin** plugin creates a special user group with **read-only** access to the Cotonti administration panel. It is intended for demonstrations, training, or auditing, allowing trusted users to explore the admin interface without risking accidental changes.
 
-**Main goal** — to provide limited access to the Cotonti administration panel to trusted individuals (for audit, training, or demonstration) without the risk of accidental or intentional changes to settings, content, rights, or site structure.
+Key features:
 
-A user in the **Demo Admin** group will be able to:
+- Creates a “Demo Admin” group with limited rights.
+- Automatically grants read‑only permissions to all active modules, plugins, and structure categories.
+- Provides an admin interface to:
+  - View the list of demo administrators.
+  - Create new demo admin users.
+  - Customize which modules/plugins the demo admins can see.
+- Blocks all write operations for demo admins via a global hook (POST requests and dangerous actions are intercepted).
 
-- log in to the administration panel;
-- view almost all admin sections, including settings, user lists, pages, modules, and plugins;
-- see the interface and data exactly as a full administrator sees them.
-
-However, they **will not be able to**:
-
-- save changes (configuration, content, rights);
-- delete or edit records;
-- install/uninstall extensions;
-- perform any operations that alter the system state.
-
-In fact, the plugin simulates a “view only” mode for the admin panel, similar to the demo mode in OpenCart or PrestaShop.
-
-**Important:** the plugin does not change the Cotonti database structure. Only standard tables are used: `cot_groups`, `cot_auth`, `cot_groups_users`, `cot_users`.
+**Note:** The plugin does not alter the database schema. It uses standard Cotonti tables (`cot_groups`, `cot_auth`, `cot_groups_users`, `cot_users`).
 
 ---
 
@@ -64,65 +58,79 @@ In fact, the plugin simulates a “view only” mode for the admin panel, simila
 
 ### 2.1. Creating the “Demo Admin” Group
 
-On the first plugin call (or during installation), the function `cot_user_demo_admin_ensure_group()` checks for the existence of a group with the specified alias (default `demo_admin`). If the group is not found, it is created in the `cot_groups` table with the following parameters:
+The group is created (or ensured) by the function `cot_user_demo_admin_ensure_group()`. It:
 
-- `grp_name` = “Demo Admin”
-- `grp_title` = “Demo Admin”
-- `grp_level` = 50 (high enough to appear as a privileged group)
-- `grp_alias` = `demo_admin` (configurable)
-- `grp_skiprights` = 0 (rights are used)
-- `grp_pfs_maxfile` / `grp_pfs_maxtotal` = 0 (file upload is forbidden)
+1. Looks for a group with the configured alias (default `demo_admin`).
+2. If **not found**:
+   - Creates a new group in `cot_groups` with:
+     - `grp_name` = “Demo Admin”
+     - `grp_title` = “Demo Admin”
+     - `grp_level` = 50
+     - `grp_alias` = `demo_admin` (configurable)
+     - `grp_skiprights` = 0
+     - `grp_pfs_maxfile` / `grp_pfs_maxtotal` = 0 (upload forbidden)
+   - Calls `cot_user_demo_admin_ensure_all_read()` to set initial read-only rights for **all modules, plugins, and categories**.
+3. If the group **already exists**:
+   - Only ensures that the `admin` and `users` rights are present and correct:
+     - `admin` → rights = **129** (R + A, to allow admin panel access)
+     - `users` → rights = **1** (R, to view user lists)
+   - **Does not** reset the rights of other modules/plugins/categories. This allows an administrator to later customize permissions via the plugin’s “Rights” tab without having them overwritten on every page load.
+
+All rights are stored with `auth_rights_lock = 254`, preventing accidental modification through the standard Cotonti rights editor.
 
 ### 2.2. Assigning Access Rights
 
-The plugin uses the standard Cotonti rights system based on bit masks in the `cot_auth` table. The following rights are set for the demo administrator group:
+The plugin uses Cotonti’s standard bit‑mask system in the `cot_auth` table. The following rights are set for the Demo Admin group:
 
-| Area                     | Code                | Rights (number) | Meaning                           |
-|--------------------------|---------------------|-----------------|-----------------------------------|
-| Admin panel              | `admin`             | 129             | R (read) + A (admin access)       |
-| Users                    | `users`             | 1               | R (read only)                     |
-| Messages                 | `message`           | 1               | R                                 |
-| Structure                | `structure`         | 1               | R                                 |
-| All modules              | (each)              | 1               | R                                 |
-| All plugins              | `plug` / code       | 1               | R                                 |
-| All structure categories | (module code) / category | 1           | R (for each category)             |
+| Area                     | Code                | Rights (number) | Meaning                          |
+|--------------------------|---------------------|-----------------|----------------------------------|
+| Admin panel              | `admin`             | 129             | Read + Admin access (R + A)      |
+| Users                    | `users`             | 1               | Read only (R)                    |
+| Core (messages, structure) | `message`, `structure` | 1            | Read only (R)                    |
+| All modules (except admin, users) | module code | 1            | Read only (R)                    |
+| All plugins (active)     | `plug` / code       | **129**         | Read + Admin (R + A) – allows viewing plugin admin pages |
+| Structure categories     | module code / category | 1            | Read only (R) – allows viewing content |
 
-Bit masks:
-- **R** = 1 (read)
-- **W** = 2 (write)
-- **A** = 128 (administrative access)
+> **Why plugins get 129 instead of 1?**  
+> In Cotonti, accessing a plugin’s admin page (`admin/other?p=plugin`) requires both **R** and **A** rights. Giving only **R** would still lead to “Access denied” on those pages. Hence the plugin sets **129** for all active plugins.  
+> Modules, on the other hand, often only require **R** to view their admin pages (e.g., `admin.php?m=page`), so they receive **1**.
 
-For `admin`, the value is set to 129 = 1+128, which gives access to the admin panel but **does not** grant write (W) or additional privileges (1-5).  
-All other areas receive only R = 1.
-
-**Rights for structure categories.** The plugin grants R rights not only to module root areas (`auth_option = 'a'`) but also to **every structure category** (for example, all categories of the `page`, `forums` modules, etc.). This is necessary so that the demo administrator can see content that is checked through category rights. Without this step, the user would not see even public pages and records.
-
-For all rights, `auth_rights_lock` is set to 254, which blocks changing these rights through the standard editing interface (R, W, A, and additional bits are locked). This prevents accidental expansion of demo group rights by the demo user themselves.
+All structure categories are assigned **R = 1** to ensure that content visibility checks (which often involve category rights) pass for the demo admin.
 
 ### 2.3. Write Operation Protection
 
-Since the standard Cotonti rights system cannot fully prevent writing when admin panel access exists (many scripts only check `cot_auth('admin', 'a', 'A')`), the plugin adds **an additional layer of protection** through a global hook.
+Because Cotonti’s standard rights system alone cannot fully prevent writes when a user has admin panel access, the plugin adds an additional layer of protection via the global hook `user_demo_admin.global.php`.
 
-In the file `user_demo_admin.global.php`, the following check is implemented:
+For any user belonging to the Demo Admin group:
 
-- If the current user belongs to the Demo Admin group **and** is in the admin panel:
-  - the `Cot::$usr['auth_write']` variable is forcibly set to `false`;
-  - the incoming request is analyzed:
-    - if the method is `POST` → considered a write attempt;
-    - if the `a` parameter (action) is in the dangerous list (`update`, `save`, `add`, `edit`, `delete`, `install`, `uninstall`, `config`, `rights`, etc.) → write attempt;
-    - if `m=config` or `m=rights` is requested → write attempt.
-- When a write attempt is detected:
-  - `$_POST` and `$_REQUEST` arrays are cleared;
-  - a warning “Demo mode: changes are not saved...” is shown;
-  - a redirect to the previous page (or admin home) is performed.
+- **All POST requests are blocked** except those related to login/logout (`m=login` or `a=logout`).  
+  When such a request is detected:
+  - `$_POST` is cleared.
+  - A warning message “Режим демонстрации: изменения не сохраняются…” is shown.
+  - The user is redirected back (to the previous page or to the admin home).
+- **Dangerous GET actions** (list of `a` values like `update`, `save`, `delete`, `install`, `config`, etc.) are also blocked with a redirect.
+- **Direct access to the User Demo Admin plugin page** (`m=other & p=user_demo_admin`) is denied for demo admins (they cannot manage the group itself).
 
-Thus, any POST requests and actions that usually lead to data changes are blocked before the main logic is executed.
+This ensures that even if a demo admin tries to submit a form manually, the request never reaches the target script.
 
 ### 2.4. Creating a Demo Admin User
 
-In the plugin's admin interface (the “Create User” tab), an administrator can enter a name, email, and password. After data validation (length, format, uniqueness), the standard function `cot_add_user()` is called with the main group `$groupId` (the Demo Admin group ID). The created user immediately receives all rights of this group.
+In the plugin’s admin interface, under the “Create User” tab, a real administrator can enter a name, email, and password. After validation (length, format, uniqueness), the user is created using `cot_add_user()` with the main group set to the Demo Admin group ID. No activation email is sent (`$sendemail = false`).
 
-An activation email is not sent (`$sendemail = false`).
+The new user automatically inherits all rights of the Demo Admin group.
+
+### 2.5. Managing Permissions via Admin UI
+
+The plugin provides a “Rights” tab where administrators can customize which modules/plugins the demo admins can view:
+
+- A list of all **core codes** (message, structure), **active modules** (except admin and users), and **active plugins** is displayed with radio buttons for **Allow** / **Deny**.
+- Saving the form updates the `cot_auth` entries:
+  - For modules/core: allowed = **1** (R), denied = **0**.
+  - For plugins: allowed = **129** (R + A), denied = **0**.
+- When a module’s root permission is changed, all its structure categories are automatically kept at **R = 1** (to prevent breaking frontend viewing).
+- The rights cache is cleared after saving.
+
+**Important:** The initial read-only rights for all modules/plugins are set **only when the group is first created**. After that, administrators can freely change permissions via this tab without them being reset on every page load.
 
 ---
 
@@ -130,37 +138,30 @@ An activation email is not sent (`$sendemail = false`).
 
 ### 3.1. What Can Be Viewed
 
-After logging into the admin panel, the demo administrator will see the standard left menu and can open the following sections:
+A demo admin can log into the admin panel and view almost all sections:
 
-- **Admin home page** (overview information).
-- **Settings** (site configuration) — all tabs: general, security, performance, themes, etc. (in view mode).
-- **Users** — user list, search, profile viewing (without edit buttons).
-- **Pages** (if the page module is installed) — page list, category structure, content preview.
-- **Extensions** — list of modules and plugins, their settings (view only; “Save” buttons will be inactive or their click will be blocked).
-- **Site structure** — viewing categories and parameters.
-- **Access rights** — rights group viewing interface (display may be possible, but saving is not).
+- **Home page** of the admin panel.
+- **Configuration** – all tabs (view only).
+- **Users** – user list, profiles.
+- **Pages** (if installed) – page list, categories, content preview.
+- **Extensions** – list of modules and plugins, their settings (read only).
+- **Structure** – categories and parameters.
 - **Tools**, **Files**, **Cache**, and other sections available to a regular administrator.
 
-Thanks to the set R rights on all modules and categories, the demo admin will not see “Access denied” messages when trying to open pages.
+Thanks to the R rights on all modules and categories, the demo admin will not see “Access denied” when opening pages.
 
-Below is a summary table of access:
-
-| Zone                          | What is allowed                        | What is forbidden / what happens     |
-|-------------------------------|----------------------------------------|--------------------------------------|
-| **Frontend**                  | Read pages, lists, user profiles, categories | Edit, delete, add content (if no other groups) |
-| **Admin login**               | Yes                                    | —                                    |
-| **Viewing admin sections**    | Almost all sections (Configuration, Extensions, Structure, Users, Page, etc.) | —                                    |
-| **“Save”, “Update”, “Add”, “Delete” buttons** | Sees buttons and forms                   | On click — “Demo mode...” warning + redirect, data is not saved |
-| **Site and plugin configuration** | Can open and view                        | Saving is blocked                    |
-| **Group rights**              | Can open                                | Changes are blocked                  |
-| **Install/uninstall extensions** | Sees the list                            | Actions are blocked                  |
-| **User Demo Admin plugin itself** | Can view demo user list                    | Creating new demo users and changing rights — only by a real administrator |
-
-**Important:** the demo user **is not** a super administrator. They simply have the right to enter the admin panel and read.
+| Zone                      | Allowed                                      | Forbidden / What happens                  |
+|---------------------------|----------------------------------------------|-------------------------------------------|
+| **Admin login**           | Yes                                          | –                                         |
+| **Viewing admin sections**| Almost all sections                          | –                                         |
+| **Buttons (Save, Update, Delete, etc.)** | Visible, but clicking triggers block | Data is not saved; warning + redirect    |
+| **POST requests**         | Only login/logout                            | Any other POST is blocked                 |
+| **Dangerous actions (GET)** | Not allowed (update, save, delete, etc.)   | Redirect to admin home                    |
+| **User Demo Admin plugin page** | Forbidden (for demo admins)             | Access denied (error 930)                 |
 
 ### 3.2. Which Operations Are Forbidden
 
-All operations that change the system state will be blocked:
+All operations that modify the system state are blocked:
 
 - Saving any settings (configuration, themes, modules, plugins).
 - Adding, editing, deleting users, pages, categories, files, etc.
@@ -168,19 +169,20 @@ All operations that change the system state will be blocked:
 - Changing access rights.
 - Clearing cache, executing SQL queries, and other dangerous actions.
 
-Formally, the interface may contain “Save”, “Update”, “Delete” buttons, etc., but when attempting to click them (i.e., sending a POST request or an action classified as dangerous), protection will trigger.
+Even if the interface shows “Save”, “Update”, or “Delete” buttons, the corresponding requests are intercepted and never executed.
 
 ### 3.3. Behavior When Attempting to Save
 
-When a demo admin clicks the save button, the following happens:
+1. The demo admin clicks a “Save” button.
+2. The browser sends a **POST** request.
+3. The global hook detects the POST and the user is a demo admin (and the request is not login/logout).
+4. The plugin:
+   - Clears `$_POST`.
+   - Shows a warning: “Режим демонстрации: изменения не сохраняются. Вы можете только просматривать интерфейс.”
+   - Redirects back to the previous page (or admin home).
+5. The target script does not execute, and no data is changed.
 
-1. The browser sends a request to the server (usually POST with parameters).
-2. The plugin's global hook intercepts this request.
-3. If the user is identified as a demo admin and the request contains dangerous signs (POST or `a` in the prohibited list), the following actions are performed:
-   - `$_POST` and part of `$_REQUEST` are cleared;
-   - a warning message is displayed (usually a popup notification);
-   - a redirect to the previous page or admin home is performed.
-4. The target script (e.g., saving configuration) does not execute, and the data is not changed.
+For **GET** requests with dangerous action parameters (e.g., `a=delete`), the same warning and redirect occur.
 
 ---
 
@@ -188,34 +190,32 @@ When a demo admin clicks the save button, the following happens:
 
 ### 4.1. Installation
 
-1. Copy the `user_demo_admin` folder to the `plugins/` directory of your site.
+1. Copy the `user_demo_admin` folder to the `plugins/` directory.
 2. Log in to the Cotonti administration panel with full rights.
 3. Go to **Extensions** → **Plugins**.
-4. Find the **User Demo Admin** plugin in the list.
-5. Click the **Install** button.
+4. Find **User Demo Admin** and click **Install**.
 
 After installation:
-- The `cot_user_demo_admin_ensure_group()` function will be executed (if not already called), creating the group and rights.
-- The plugin will appear in the admin panel under **Administration** → **User Demo Admin** (or via the link `admin.php?m=other&p=user_demo_admin`).
 
-It is recommended to open the plugin, go to the “Rights” tab, and click “Save rights” — this ensures that rights are recreated for all current structure categories.
+- The group and initial rights are created if missing.
+- The plugin appears under **Administration** → **User Demo Admin** (link: `admin.php?m=other&p=user_demo_admin`).
+- You can immediately start creating demo users or customizing permissions in the “Rights” tab.
 
 ### 4.2. Removal
 
-1. In **Extensions** → **Plugins**, find the installed **User Demo Admin** plugin.
-2. Click the **Uninstall** button.
+1. In **Extensions** → **Plugins**, locate **User Demo Admin**.
+2. Click **Uninstall**.
 
-During removal, the `uninstall.php` script:
-- finds the group by alias;
-- moves all users of this group to the **Members** group (ID = 4);
-- deletes all user-group links in `cot_groups_users`;
-- deletes all group rights from `cot_auth`;
-- deletes the group itself from `cot_groups`;
-- clears the authorization cache (`cot_auth_clear('all')`).
+The uninstall script:
 
-**Important:** after plugin removal, users who belonged to the demo group lose admin access and become regular members.
+- Finds the group by alias.
+- Moves all users of that group to the **Members** group (ID = 4).
+- Deletes all user–group links in `cot_groups_users`.
+- Deletes all group rights from `cot_auth`.
+- Deletes the group itself from `cot_groups`.
+- Clears the authorization cache (`cot_auth_clear('all')`).
 
-Before removal, it is recommended to manually delete or move demo users.
+**Note:** After removal, demo users become regular members and lose admin access.
 
 ### 4.3. Installation File (install.php)
 
@@ -232,9 +232,10 @@ if (!$groupId) {
 ```
 
 **What it does:**
-- Includes the plugin functions file.
-- Calls `cot_user_demo_admin_ensure_group()`, which creates the group and assigns all necessary rights.
-- Outputs an error if the group cannot be created.
+
+- Includes the plugin’s functions.
+- Calls `cot_user_demo_admin_ensure_group()` – creates the group (if needed) and sets initial rights.
+- Displays an error if the group cannot be created.
 
 ### 4.4. Removal File (uninstall.php)
 
@@ -267,9 +268,10 @@ if ($group) {
 ```
 
 **What it does:**
+
 - Finds the group ID by alias.
-- Updates `user_maingrp` of all users in this group to the standard Members group (4).
-- Deletes links in `cot_groups_users`, rights in `cot_auth`, and the group itself.
+- Moves all users of this group to the standard Members group (ID 4).
+- Deletes links, rights, and the group itself.
 - Clears the rights cache.
 
 ### 4.5. Plugin File Structure
@@ -277,10 +279,10 @@ if ($group) {
 ```
 plugins/user_demo_admin/
 ├── user_demo_admin.setup.php          — registration and settings
-├── user_demo_admin.global.php         — write protection + stub
-├── user_demo_admin.admin.php          — main interface (tools)
+├── user_demo_admin.global.php         — write protection
+├── user_demo_admin.admin.php          — admin interface (tabs: list, create, rights)
 ├── inc/
-│   └── user_demo_admin.functions.php  — all business logic
+│   └── user_demo_admin.functions.php  — business logic
 ├── lang/
 │   └── user_demo_admin.ru.lang.php    — Russian language file
 ├── tpl/
@@ -294,320 +296,307 @@ plugins/user_demo_admin/
 
 ## 5. Security Warnings
 
-The **User Demo Admin** plugin provides fairly broad access to administrative information. Despite all measures taken, the following risks should be considered:
+1. **Protection bypass via unusual requests.**  
+   The plugin blocks all POST requests (except login/logout) and known dangerous GET actions. However, a determined attacker might find a way to trigger a write via an unlisted GET parameter or a direct script call. The global hook covers most cases, but 100% isolation cannot be guaranteed.
 
-1. **Protection bypass through direct requests.**  
-   Theoretically, knowing Cotonti's structure, a demo user could try to send a non-standard POST request that does not contain prohibited `a` parameters. Protection blocks most scenarios but does not guarantee 100% isolation.
-
-2. **Confidential data leakage.**  
-   The demo admin can see user emails, security settings, file paths, the list of installed extensions, and other sensitive information. Do not give such access to strangers.
+2. **Confidential data exposure.**  
+   Demo admins can see user emails, configuration settings, file paths, installed extensions, and other sensitive information. Grant access only to trusted individuals.
 
 3. **Performance impact.**  
-   A user with admin access can open heavy pages (e.g., the entire user list with many records), which may load the server. Limit the number of demo users if necessary.
+   Users with admin access can open heavy pages (e.g., large user lists), which may load the server. Limit the number of demo users if necessary.
 
-4. **Rights changes through the standard interface.**  
-   The plugin locks group rights via `auth_rights_lock=254`, but if someone with full access accidentally removes the lock through direct database editing, the demo admin could elevate their rights. Regularly check the integrity of settings.
+4. **Rights lock.**  
+   All rights have `auth_rights_lock = 254`, which prevents modification via the standard UI. However, someone with database access could change this value. Periodically verify the group’s rights.
 
-5. **Incompatibility with some third-party plugins.**  
-   Some plugins may save via AJAX or alternative methods not intercepted by the standard `global` hook. In such cases, protection may not work. Test all critical extensions before granting demo access.
+5. **Incompatibility with third‑party plugins.**  
+   Some plugins may use AJAX or other methods not intercepted by the global hook. Test critical extensions before granting demo access.
 
-6. **The demo user password must be strong.**  
-   Do not use `demo`, `123456`, etc. Generate a reliable password.
+6. **Strong passwords.**  
+   Always use strong passwords for demo accounts.
 
-7. **Do not leave demo users for a long time.**  
-   Delete or block such users after the demonstration or testing is complete.
-
-8. **A super administrator can always change the Demo Admin group rights.**  
-   Watch to ensure the group rights are not accidentally expanded.
-
-**Recommendations:**
-- Use the plugin only for a limited circle of trusted individuals.
-- Do not share demo credentials publicly.
-- Periodically check that the group and rights have not been changed.
-- If unauthorized change attempts are detected, immediately remove the demo user.
+7. **Remove demo users when no longer needed.**  
+   Delete or block demo accounts after the demonstration or testing is complete.
 
 ---
 
 ## 6. Recommendations for Further Modification
 
-The plugin can be extended and adapted for specific tasks. Consider the following directions:
+1. **Finer control over blocked actions.**  
+   Extend the `$dangerousActions` list or add URL pattern checks in `user_demo_admin.global.php`.
 
-1. **Finer control of prohibited actions.**  
-   In `user_demo_admin.global.php`, additional parameters or URL patterns can be added for blocking. For example, deny access to certain sections while leaving view only.
+2. **AJAX protection.**  
+   Intercept `XMLHttpRequest` (header `X-Requested-With`) and block POST AJAX requests similarly.
 
-2. **AJAX request support.**  
-   For complete protection, also intercept `XMLHttpRequest` (the `X-Requested-With` header) and block POST requests sent via AJAX.
+3. **Logging.**  
+   Add `cot_log()` calls in the blocking part to record attempted writes.
 
-3. **Rights separation by modules.**  
-   The “Rights” tab already allows targeted denial of reading individual modules. A function can be added to automatically hide forbidden menu items.
+4. **Custom messages.**  
+   Replace the default warning with a more informative one.
 
-4. **Logging demo admin actions.**  
-   It is useful to log all write attempts to track suspicious activity. Add a `cot_log()` call in the blocking part.
+5. **English language file.**  
+   Create `user_demo_admin.en.lang.php` for multilingual sites.
 
-5. **Message customization.**  
-   Replace the standard warning with a more informative one, e.g., indicating the reason and possible actions.
+6. **Whitelist of allowed admin sections.**  
+   Instead of granting access to all modules, implement a list of sections that demo admins can view.
 
-6. **Integration with other groups.**  
-   Multiple demo groups with different rights sets can be created using the same mechanism.
+7. **Move dangerous action list to plugin settings.**  
+   Allow administrators to edit the list of dangerous actions from the admin panel.
 
-7. **Add an English language file.**  
-   For multilingual sites.
+8. **Add a banner in the admin header.**  
+   Display a persistent “Demo mode” notice for demo admins.
 
-8. **Add a “Allowed admin sections” setting.**  
-   Instead of full access, implement a whitelist of sections.
+9. **Extra fields support.**  
+   If additional user fields are used, extend the creation form and `cot_add_user()` call accordingly.
 
-9. **Move the `$dangerousActions` list to plugin settings.**  
-   So the administrator can easily add dangerous actions without editing code.
-
-10. **Add a hook after demo user creation.**  
-    For example, `usersaddsadmin.add.done` or a custom hook for additional actions.
-
-11. **When creating a user, automatically add them to the Members group.**  
-    For more predictable frontend behavior (rights inherited from Members + Demo Admin).
-
-12. **Create a “You are in demo mode” banner.**  
-    Display a warning in the admin header so the demo user clearly sees the restrictions.
-
-13. **Support for extra fields when creating a user.**  
-    If additional user fields are used, their processing should be added.
-
-**Checklist when modifying write protection:**
-- Saving configuration.
-- Installing/uninstalling plugins.
-- Editing rights.
-- Working with structure and page.
+10. **Hook after user creation.**  
+    Trigger a custom hook after a demo user is created for additional processing.
 
 ---
 
 ## 7. Conclusions
 
-The **User Demo Admin** plugin solves the task of providing limited access to the Cotonti administration panel with read-only rights. Thanks to the combination of standard rights (R on all objects, A on the admin panel) and additional write operation blocking through a global hook, it provides an acceptable level of security for demonstration purposes.
+The **User Demo Admin** plugin provides a reliable way to grant read‑only access to the Cotonti admin panel. It combines standard rights (R on most objects, A on the admin panel) with an extra layer of write protection via a global hook. The admin interface allows flexible management of demo users and permissions.
 
-However, due to Cotonti's architectural features (many admin scripts only check for the A right), it is difficult to fully guarantee the impossibility of writing by standard means. Therefore, the plugin should be used with caution and only for trusted users.
+Due to Cotonti’s architecture, absolute protection against all possible write attempts cannot be guaranteed, but the plugin covers the most common scenarios. Use it with caution and only for trusted users.
 
-If necessary, the plugin can be easily extended with additional checks, logging, or integration with other systems. The documentation and code structure allow developers to quickly adapt it to their needs.
-
+The code is well‑structured and can be easily extended for specific needs.
 
 ___
-
-
+```markdown
 # Руководство по плагину User Demo Admin для Cotonti
 
-**Версия:** 5.0.0  
+**Версия:** 5.0.1  
 **Автор:** webitproff  
 **Лицензия:** BSD  
 **Требования:** Cotonti (актуальная версия), модуль users
-___
-> Плагин "User Demo Admin" - это совершенно новое и экспериментальное расширение для CMF Cotonti. Использовать на свой страх и риск. Плагин не обкатан в полной мере, что бы делать смелые заявления. В большей части плагин решает мои задачи (как разработчика), но вам рекомендую использовать с предельной осторожностью! 
-___
----
 
-## Оглавление
+> Плагин «User Demo Admin» — это совершенно новое и экспериментальное расширение для CMF Cotonti. Используйте его на свой страх и риск. Плагин не был полностью протестирован, чтобы делать смелые заявления. По большей части плагин решает мои задачи (как разработчика), но я рекомендую использовать его с особой осторожностью!
 
-1. [Обзор плагина и его назначение](#1-обзор-плагина-и-его-назначение)  
-2. [Бизнес-логика плагина](#2-бизнес-логика-плагина)  
-   - 2.1. Создание группы «Demo Admin»  
-   - 2.2. Назначение прав доступа  
-   - 2.3. Защита от операций записи  
-   - 2.4. Создание пользователя демо-администратора  
-3. [Взаимодействие демо-админа с интерфейсом сайта](#3-взаимодействие-демо-админа-с-интерфейсом-сайта)  
-   - 3.1. Что можно просматривать  
-   - 3.2. Какие операции запрещены  
-   - 3.3. Поведение при попытке сохранения  
-4. [Техническая памятка по установке и удалению плагина](#4-техническая-памятка-по-установке-и-удалению-плагина)  
-   - 4.1. Установка  
-   - 4.2. Удаление  
-   - 4.3. Файл установки (install.php)  
-   - 4.4. Файл удаления (uninstall.php)  
-   - 4.5. Структура файлов плагина  
-5. [Предупреждения безопасности](#5-предупреждения-безопасности)  
-6. [Рекомендации по дальнейшей модификации](#6-рекомендации-по-дальнейшей-модификации)  
-7. [Выводы](#7-выводы)
+<img width="1168" height="784" alt="User Demo Admin для Cotonti" src="https://github.com/user-attachments/assets/4597c6ed-e9ab-437b-be2b-155c157cb433" />
 
 ---
 
-## 1. Обзор плагина и его назначение
+## Содержание
 
-Плагин **User Demo Admin** предназначен для создания пользователей с особым уровнем доступа — «демонстрационный администратор» или «администратор только для чтения».
-
-**Основная цель** — предоставить ограниченный доступ в административную панель Cotonti доверенным лицам (аудит, обучение, демонстрация) без риска случайного или намеренного изменения настроек, контента, прав или структуры сайта.
-
-Пользователь из группы **Demo Admin** сможет:
-
-- войти в административную панель;
-- просматривать практически все разделы админки, включая настройки, списки пользователей, страницы, модули и плагины;
-- видеть интерфейс и данные так, как их видит полноценный администратор.
-
-При этом он **не сможет**:
-
-- сохранять изменения (конфигурация, контент, права);
-- удалять или редактировать записи;
-- устанавливать/удалять расширения;
-- выполнять любые операции, изменяющие состояние системы.
-
-Фактически плагин имитирует режим «только просмотр» для админ-панели, аналогичный демо-режиму в OpenCart или PrestaShop.
-
-**Важно:** плагин не изменяет структуру базы данных Cotonti. Используются только стандартные таблицы: `cot_groups`, `cot_auth`, `cot_groups_users`, `cot_users`.
+1. [Обзор и назначение плагина](#1-plugin-overview-and-purpose-ru)  
+2. [Бизнес-логика плагина](#2-plugin-business-logic-ru)  
+   - 2.1. [Создание группы «Демо-администратор»](#21-creating-the-demo-admin-group-ru)  
+   - 2.2. [Назначение прав доступа](#22-assigning-access-rights-ru)  
+   - 2.3. [Защита от операций записи](#23-write-operation-protection-ru)  
+   - 2.4. [Создание пользователя демо-администратора](#24-creating-a-demo-admin-user-ru)  
+   - 2.5. [Управление правами через интерфейс администратора](#25-managing-permissions-via-admin-ui-ru)  
+3. [Взаимодействие демо-администратора с интерфейсом сайта](#3-demo-admin-interaction-with-the-site-interface-ru)  
+   - 3.1. [Что можно просматривать](#31-what-can-be-viewed-ru)  
+   - 3.2. [Какие операции запрещены](#32-which-operations-are-forbidden-ru)  
+   - 3.3. [Поведение при попытке сохранения](#33-behavior-when-attempting-to-save-ru)  
+4. [Техническое руководство по установке и удалению](#4-technical-installation-and-removal-guide-ru)  
+   - 4.1. [Установка](#41-installation-ru)  
+   - 4.2. [Удаление](#42-removal-ru)  
+   - 4.3. [Файл установки (install.php)](#43-installation-file-installphp-ru)  
+   - 4.4. [Файл удаления (uninstall.php)](#44-removal-file-uninstallphp-ru)  
+   - 4.5. [Структура файлов плагина](#45-plugin-file-structure-ru)  
+5. [Предупреждения безопасности](#5-security-warnings-ru)  
+6. [Рекомендации по дальнейшей модификации](#6-recommendations-for-further-modification-ru)  
+7. [Выводы](#7-conclusions-ru)
 
 ---
 
+<a name="1-plugin-overview-and-purpose-ru"></a>
+## 1. Обзор и назначение плагина
+
+Плагин **User Demo Admin** создаёт специальную группу пользователей с доступом **только для чтения** к панели администрирования Cotonti. Он предназначен для демонстраций, обучения или аудита, позволяя доверенным пользователям изучать интерфейс администратора без риска случайных изменений.
+
+Ключевые возможности:
+
+- Создаёт группу «Демо-администратор» с ограниченными правами.
+- Автоматически предоставляет права только на чтение всем активным модулям, плагинам и категориям структуры.
+- Предоставляет административный интерфейс для:
+  - просмотра списка демо-администраторов;
+  - создания новых пользователей демо-администраторов;
+  - настройки того, какие модули/плагины могут видеть демо-администраторы.
+- Блокирует все операции записи для демо-администраторов через глобальный хук (перехватываются POST-запросы и опасные действия).
+
+**Примечание:** Плагин не изменяет схему базы данных. Он использует стандартные таблицы Cotonti (`cot_groups`, `cot_auth`, `cot_groups_users`, `cot_users`).
+
+---
+
+<a name="2-plugin-business-logic-ru"></a>
 ## 2. Бизнес-логика плагина
 
-### 2.1. Создание группы «Demo Admin»
+<a name="21-creating-the-demo-admin-group-ru"></a>
+### 2.1. Создание группы «Демо-администратор»
 
-При первом обращении к плагину (или при его установке) функция `cot_user_demo_admin_ensure_group()` проверяет наличие группы с заданным алиасом (по умолчанию `demo_admin`). Если группа не найдена, она создаётся в таблице `cot_groups` со следующими параметрами:
+Группа создаётся (или проверяется) функцией `cot_user_demo_admin_ensure_group()`. Она:
 
-- `grp_name` = «Demo Admin»
-- `grp_title` = «Demo Admin»
-- `grp_level` = 50 (достаточно высокий, чтобы отображаться как привилегированная группа)
-- `grp_alias` = `demo_admin` (настраивается в конфигурации)
-- `grp_skiprights` = 0 (права используются)
-- `grp_pfs_maxfile` / `grp_pfs_maxtotal` = 0 (загрузка файлов запрещена)
+1. Ищет группу с заданным в настройках алиасом (по умолчанию `demo_admin`).
+2. Если группа **не найдена**:
+   - Создаёт новую группу в `cot_groups` со следующими параметрами:
+     - `grp_name` = «Demo Admin»
+     - `grp_title` = «Demo Admin»
+     - `grp_level` = 50
+     - `grp_alias` = `demo_admin` (настраивается)
+     - `grp_skiprights` = 0
+     - `grp_pfs_maxfile` / `grp_pfs_maxtotal` = 0 (загрузка запрещена)
+   - Вызывает `cot_user_demo_admin_ensure_all_read()` для установки начальных прав только на чтение для **всех модулей, плагинов и категорий**.
+3. Если группа **уже существует**:
+   - Только проверяет, что права `admin` и `users` присутствуют и корректны:
+     - `admin` → права = **129** (R + A, чтобы разрешить доступ в админ-панель)
+     - `users` → права = **1** (R, чтобы просматривать списки пользователей)
+   - **Не сбрасывает** права остальных модулей/плагинов/категорий. Это позволяет администратору впоследствии настраивать права через вкладку «Права» плагина, не опасаясь, что они будут перезаписаны при каждой загрузке страницы.
 
+Все права сохраняются с `auth_rights_lock = 254`, что предотвращает случайное изменение через стандартный редактор прав Cotonti.
+
+<a name="22-assigning-access-rights-ru"></a>
 ### 2.2. Назначение прав доступа
 
-Плагин использует стандартную систему прав Cotonti, основанную на битовых масках в таблице `cot_auth`. Для группы демо-администратора устанавливаются следующие права:
+Плагин использует стандартную систему битовых масок Cotonti в таблице `cot_auth`. Для группы демо-администратора устанавливаются следующие права:
 
-| Область                  | Код                 | Права (число) | Значение                          |
-|--------------------------|---------------------|---------------|-----------------------------------|
-| Админ-панель             | `admin`             | 129           | R (чтение) + A (доступ в админку)|
-| Пользователи             | `users`             | 1             | R (только чтение)                |
-| Сообщения                | `message`           | 1             | R                                 |
-| Структура                | `structure`         | 1             | R                                 |
-| Все модули               | (каждый)            | 1             | R                                 |
-| Все плагины              | `plug` / код        | 1             | R                                 |
-| Все категории структуры  | (код модуля) / категория | 1         | R (для каждой категории)         |
+| Область                     | Код                | Права (число) | Значение                          |
+|-----------------------------|--------------------|---------------|-----------------------------------|
+| Панель администратора       | `admin`            | 129           | Чтение + доступ администратора (R + A) |
+| Пользователи                | `users`            | 1             | Только чтение (R)                 |
+| Ядро (сообщения, структура) | `message`, `structure` | 1          | Только чтение (R)                 |
+| Все модули (кроме admin, users) | код модуля      | 1             | Только чтение (R)                 |
+| Все активные плагины        | `plug` / код       | **129**       | Чтение + доступ администратора (R + A) – позволяет просматривать страницы администрирования плагинов |
+| Категории структуры         | код модуля / категория | 1         | Только чтение (R) – позволяет просматривать контент |
 
-Битовые маски:
-- **R** = 1 (чтение)
-- **W** = 2 (запись)
-- **A** = 128 (административный доступ)
+> **Почему плагины получают 129, а не 1?**  
+> В Cotonti доступ к странице администрирования плагина (`admin/other?p=plugin`) требует наличия прав **R** и **A**. Если дать только **R**, то на таких страницах всё равно будет «Доступ запрещён». Поэтому плагин устанавливает **129** для всех активных плагинов.  
+> Модули, с другой стороны, часто требуют только **R** для просмотра своих административных страниц (например, `admin.php?m=page`), поэтому они получают **1**.
 
-Для `admin` ставится 129 = 1+128, что даёт право на вход в админку, но **не даёт** права записи (W) и дополнительных привилегий (1-5).  
-Все остальные области получают только R = 1.
+Всем категориям структуры назначается **R = 1**, чтобы гарантировать, что проверки видимости контента (которые часто включают права категорий) проходили успешно для демо-администратора.
 
-**Права на категории структуры.** Плагин выдаёт право R не только на корневые разделы модулей (`auth_option = 'a'`), но и на **каждую категорию структуры** (например, все категории модуля `page`, `forums` и т.д.). Это необходимо, чтобы демо-администратор мог видеть материалы, доступ к которым проверяется через права категорий. Без этого шага пользователь не увидел бы даже публичные страницы и записи.
-
-Для всех прав устанавливается `auth_rights_lock` = 254, что блокирует изменение этих прав через стандартный интерфейс редактирования (биты R, W, A и дополнительные заблокированы). Это предотвращает случайное расширение прав демо-группы самим демо-пользователем.
-
+<a name="23-write-operation-protection-ru"></a>
 ### 2.3. Защита от операций записи
 
-Поскольку штатная система прав Cotonti не может полностью запретить запись при наличии доступа в админку (многие скрипты проверяют только `cot_auth('admin', 'a', 'A')`), плагин добавляет **дополнительный уровень защиты** через глобальный хук.
+Поскольку стандартная система прав Cotonti не может полностью предотвратить запись, когда у пользователя есть доступ к админ-панели, плагин добавляет дополнительный уровень защиты через глобальный хук `user_demo_admin.global.php`.
 
-В файле `user_demo_admin.global.php` реализована проверка:
+Для любого пользователя, принадлежащего к группе демо-администратора:
 
-- Если текущий пользователь принадлежит к группе Demo Admin **и** находится в админке, то:
-  - переменная `Cot::$usr['auth_write']` принудительно устанавливается в `false`;
-  - анализируется входящий запрос:
-    - если метод `POST` → считается попыткой записи;
-    - если параметр `a` (действие) входит в список опасных (`update`, `save`, `add`, `edit`, `delete`, `install`, `uninstall`, `config`, `rights` и др.) → попытка записи;
-    - если запрошен раздел `m=config` или `m=rights` → попытка записи.
-- При обнаружении попытки записи:
-  - очищаются массивы `$_POST` и `$_REQUEST`;
-  - выводится предупреждение «Режим демонстрации: изменения не сохраняются...»;
-  - выполняется перенаправление на предыдущую страницу (или на главную админки).
+- **Все POST-запросы блокируются**, кроме связанных с входом/выходом (`m=login` или `a=logout`).  
+  При обнаружении такого запроса:
+  - `$_POST` очищается.
+  - Показывается предупреждение «Режим демонстрации: изменения не сохраняются…».
+  - Пользователь перенаправляется обратно (на предыдущую страницу или на главную админ-панели).
+- **Опасные GET-действия** (список значений `a`, таких как `update`, `save`, `delete`, `install`, `config` и т.д.) также блокируются с перенаправлением.
+- **Прямой доступ к странице плагина User Demo Admin** (`m=other & p=user_demo_admin`) запрещён для демо-администраторов (они не могут управлять самой группой).
 
-Таким образом, любые POST-запросы и действия, которые обычно приводят к изменению данных, блокируются ещё до выполнения основной логики.
+Это гарантирует, что даже если демо-администратор попытается вручную отправить форму, запрос никогда не достигнет целевого скрипта.
 
+<a name="24-creating-a-demo-admin-user-ru"></a>
 ### 2.4. Создание пользователя демо-администратора
 
-В административном интерфейсе плагина (вкладка «Создать пользователя») администратор может ввести имя, email и пароль. После валидации данных (проверка длины, формата, уникальности) вызывается стандартная функция `cot_add_user()` с указанием основной группы `$groupId` (ID группы Demo Admin). Созданный пользователь сразу получает все права этой группы.
+В административном интерфейсе плагина, на вкладке «Создать пользователя», настоящий администратор может ввести имя, email и пароль. После проверки (длина, формат, уникальность) пользователь создаётся с помощью `cot_add_user()` с основной группой, установленной на ID группы демо-администратора. Письмо для активации не отправляется (`$sendemail = false`).
 
-Письмо активации не отправляется (`$sendemail = false`).
+Новый пользователь автоматически наследует все права группы демо-администратора.
+
+<a name="25-managing-permissions-via-admin-ui-ru"></a>
+### 2.5. Управление правами через интерфейс администратора
+
+Плагин предоставляет вкладку «Права», где администраторы могут настраивать, какие модули/плагины могут просматривать демо-администраторы:
+
+- Отображается список всех **кодов ядра** (message, structure), **активных модулей** (кроме admin и users) и **активных плагинов** с радиокнопками **Разрешено** / **Запрещено**.
+- При сохранении формы обновляются записи в `cot_auth`:
+  - Для модулей/ядра: разрешено = **1** (R), запрещено = **0**.
+  - Для плагинов: разрешено = **129** (R + A), запрещено = **0**.
+- При изменении корневого права модуля все его категории структуры автоматически сохраняют **R = 1** (чтобы не сломать просмотр на фронтенде).
+- После сохранения очищается кеш прав.
+
+**Важно:** Начальные права только на чтение для всех модулей/плагинов устанавливаются **только при первом создании группы**. После этого администраторы могут свободно менять права через эту вкладку, и они не будут сбрасываться при каждой загрузке страницы.
 
 ---
 
-## 3. Взаимодействие демо-админа с интерфейсом сайта
+<a name="3-demo-admin-interaction-with-the-site-interface-ru"></a>
+## 3. Взаимодействие демо-администратора с интерфейсом сайта
 
+<a name="31-what-can-be-viewed-ru"></a>
 ### 3.1. Что можно просматривать
 
-После входа в админ-панель демо-администратор увидит стандартное левое меню и сможет открыть следующие разделы:
+Демо-администратор может войти в админ-панель и просматривать почти все разделы:
 
-- **Главная страница админки** (обзорная информация).
-- **Настройки** (конфигурация сайта) — все вкладки: основные, безопасность, производительность, темы и т.д. (в режиме просмотра).
-- **Пользователи** — список пользователей, поиск, просмотр профилей (без кнопок редактирования).
-- **Страницы** (если модуль page установлен) — список страниц, структура категорий, просмотр содержимого.
-- **Расширения** — список модулей и плагинов, их настройки (только просмотр, кнопки «Сохранить» будут неактивны или их нажатие будет заблокировано).
-- **Структура сайта** — просмотр категорий и параметров.
-- **Права доступа** — интерфейс просмотра прав групп (с возможным отображением, но без сохранения).
-- **Инструменты**, **Файлы**, **Кэш** и другие разделы, доступные обычному администратору.
+- **Главная страница** админ-панели.
+- **Конфигурация** – все вкладки (только просмотр).
+- **Пользователи** – список пользователей, профили.
+- **Страницы** (если установлены) – список страниц, категории, предпросмотр контента.
+- **Расширения** – список модулей и плагинов, их настройки (только чтение).
+- **Структура** – категории и параметры.
+- **Инструменты**, **Файлы**, **Кеш** и другие разделы, доступные обычному администратору.
 
-Благодаря установленным правам R на все модули и категории, демо-админ не увидит сообщений «Нет доступа» при попытке открыть страницы.
+Благодаря правам R на все модули и категории, демо-администратор не увидит сообщений «Доступ запрещён» при открытии страниц.
 
-Ниже приведена сводная таблица доступа:
+| Зона                      | Разрешено                                   | Запрещено / Что происходит                |
+|---------------------------|---------------------------------------------|-------------------------------------------|
+| **Вход в админку**        | Да                                          | –                                         |
+| **Просмотр разделов админки** | Почти все разделы                        | –                                         |
+| **Кнопки (Сохранить, Обновить, Удалить и т.д.)** | Видны, но при нажатии срабатывает блокировка | Данные не сохраняются; предупреждение + перенаправление |
+| **POST-запросы**          | Только вход/выход                           | Любой другой POST блокируется            |
+| **Опасные действия (GET)** | Не разрешены (update, save, delete и т.д.) | Перенаправление на главную админки        |
+| **Страница плагина User Demo Admin** | Запрещена (для демо-админов)          | Доступ запрещён (ошибка 930)             |
 
-| Зона                          | Что можно                              | Что нельзя / что происходит |
-|-------------------------------|----------------------------------------|-----------------------------|
-| **Фронтенд**                  | Читать страницы, списки, профили пользователей, категории | Редактировать, удалять, добавлять контент (если нет других групп) |
-| **Вход в админку**            | Да                                     | — |
-| **Просмотр разделов админки** | Почти все разделы (Configuration, Extensions, Structure, Users, Page и т.д.) | — |
-| **Кнопки «Сохранить», «Обновить», «Добавить», «Удалить»** | Видит кнопки и формы                   | При нажатии — предупреждение «Режим демонстрации...» + редирект, данные не сохраняются |
-| **Конфигурация сайта и плагинов** | Может открыть и смотреть               | Сохранение блокируется |
-| **Права групп**               | Может открыть                          | Изменение блокируется |
-| **Установка / удаление расширений** | Видит список                           | Действия блокируются |
-| **Собственный плагин User Demo Admin** | Может смотреть список демо-пользователей | Создание новых демо-пользователей и изменение прав — только у настоящего администратора |
-
-**Важно:** демо-пользователь **не является** супер-администратором. Он просто имеет право войти в админку и читать.
-
+<a name="32-which-operations-are-forbidden-ru"></a>
 ### 3.2. Какие операции запрещены
 
-Все операции, которые изменяют состояние системы, будут заблокированы:
+Все операции, изменяющие состояние системы, блокируются:
 
 - Сохранение любых настроек (конфигурация, темы, модули, плагины).
-- Добавление, редактирование, удаление пользователей, страниц, категорий, файлов и т.п.
+- Добавление, редактирование, удаление пользователей, страниц, категорий, файлов и т.д.
 - Установка, обновление, удаление расширений.
 - Изменение прав доступа.
-- Очистка кэша, выполнение SQL-запросов и других опасных действий.
+- Очистка кеша, выполнение SQL-запросов и другие опасные действия.
 
-Формально интерфейс может содержать кнопки «Сохранить», «Обновить», «Удалить» и т.д., но при попытке их нажать (т.е. отправить POST-запрос или действие, классифицированное как опасное) сработает защита.
+Даже если интерфейс показывает кнопки «Сохранить», «Обновить» или «Удалить», соответствующие запросы перехватываются и никогда не выполняются.
 
+<a name="33-behavior-when-attempting-to-save-ru"></a>
 ### 3.3. Поведение при попытке сохранения
 
-Когда демо-админ нажимает кнопку сохранения, происходит следующее:
+1. Демо-администратор нажимает кнопку «Сохранить».
+2. Браузер отправляет **POST**-запрос.
+3. Глобальный хук обнаруживает POST и то, что пользователь — демо-администратор (и запрос не является входом/выходом).
+4. Плагин:
+   - Очищает `$_POST`.
+   - Показывает предупреждение: «Режим демонстрации: изменения не сохраняются. Вы можете только просматривать интерфейс.»
+   - Перенаправляет обратно на предыдущую страницу (или на главную админки).
+5. Целевой скрипт не выполняется, и данные не изменяются.
 
-1. Браузер отправляет запрос на сервер (обычно POST с параметрами).
-2. Глобальный хук плагина перехватывает этот запрос.
-3. Если пользователь определён как демо-админ, а запрос содержит опасные признаки (POST или `a` в списке запрещённых), выполняются действия:
-   - очищаются `$_POST` и часть `$_REQUEST`;
-   - выводится сообщение-предупреждение (обычно всплывающее уведомление);
-   - происходит редирект на предыдущую страницу или главную админки.
-4. Целевой скрипт (например, сохранение конфигурации) не выполняется, данные не изменяются.
+Для **GET**-запросов с опасными параметрами действия (например, `a=delete`) происходит аналогичное предупреждение и перенаправление.
 
 ---
 
-## 4. Техническая памятка по установке и удалению плагина
+<a name="4-technical-installation-and-removal-guide-ru"></a>
+## 4. Техническое руководство по установке и удалению
 
+<a name="41-installation-ru"></a>
 ### 4.1. Установка
 
-1. Скопируйте папку `user_demo_admin` в директорию `plugins/` вашего сайта.
-2. Войдите в административную панель Cotonti под учётной записью с полными правами.
-3. Перейдите в раздел **Расширения** → **Плагины**.
-4. Найдите плагин **User Demo Admin** в списке доступных.
-5. Нажмите кнопку **Установить**.
+1. Скопируйте папку `user_demo_admin` в директорию `plugins/`.
+2. Войдите в панель администрирования Cotonti с полными правами.
+3. Перейдите в **Расширения** → **Плагины**.
+4. Найдите **User Demo Admin** и нажмите **Установить**.
 
 После установки:
-- Будет выполнена функция `cot_user_demo_admin_ensure_group()` (если она не была вызвана раньше), создающая группу и права.
-- Плагин появится в админ-панели в разделе **Администрирование** → **User Demo Admin** (или через ссылку `admin.php?m=other&p=user_demo_admin`).
 
-Рекомендуется после установки зайти в плагин, открыть вкладку «Права» и нажать «Сохранить права» — это гарантирует пересоздание прав на все текущие категории структуры.
+- Группа и начальные права создаются, если их нет.
+- Плагин появляется в разделе **Администрирование** → **User Demo Admin** (ссылка: `admin.php?m=other&p=user_demo_admin`).
+- Можно сразу начинать создавать демо-пользователей или настраивать права на вкладке «Права».
 
+<a name="42-removal-ru"></a>
 ### 4.2. Удаление
 
-1. В разделе **Расширения** → **Плагины** найдите установленный плагин **User Demo Admin**.
-2. Нажмите кнопку **Удалить**.
+1. В **Расширения** → **Плагины** найдите установленный **User Demo Admin**.
+2. Нажмите **Удалить**.
 
-Во время удаления выполняется скрипт `uninstall.php`, который:
-- находит группу по алиасу;
-- переводит всех пользователей этой группы в основную группу **Members** (ID = 4);
-- удаляет все связи пользователей с группой в таблице `cot_groups_users`;
-- удаляет все права группы из таблицы `cot_auth`;
-- удаляет саму группу из `cot_groups`;
-- очищает кэш авторизации (`cot_auth_clear('all')`).
+Скрипт удаления:
 
-**Важно:** после удаления плагина пользователи, относившиеся к демо-группе, теряют доступ в админку и становятся обычными участниками.
+- Находит группу по алиасу.
+- Переводит всех пользователей этой группы в группу **Members** (ID = 4).
+- Удаляет все связи пользователь-группа в `cot_groups_users`.
+- Удаляет все права группы из `cot_auth`.
+- Удаляет саму группу из `cot_groups`.
+- Очищает кеш авторизации (`cot_auth_clear('all')`).
 
-Перед удалением рекомендуется вручную удалить или перевести демо-пользователей.
+**Примечание:** После удаления демо-пользователи становятся обычными участниками и теряют доступ к админке.
 
+<a name="43-installation-file-installphp-ru"></a>
 ### 4.3. Файл установки (install.php)
 
 ```php
@@ -623,10 +612,12 @@ if (!$groupId) {
 ```
 
 **Что делает:**
-- Подключает файл функций плагина.
-- Вызывает `cot_user_demo_admin_ensure_group()`, которая создаёт группу и назначает все необходимые права.
-- Если группа не может быть создана, выводит сообщение об ошибке.
 
+- Подключает функции плагина.
+- Вызывает `cot_user_demo_admin_ensure_group()` — создаёт группу (если нужно) и устанавливает начальные права.
+- Выводит ошибку, если группа не может быть создана.
+
+<a name="44-removal-file-uninstallphp-ru"></a>
 ### 4.4. Файл удаления (uninstall.php)
 
 ```php
@@ -658,22 +649,24 @@ if ($group) {
 ```
 
 **Что делает:**
-- Находит ID группы по алиасу.
-- Обновляет `user_maingrp` всех пользователей этой группы на стандартную группу Members (4).
-- Удаляет связи в `cot_groups_users`, права в `cot_auth` и саму группу.
-- Сбрасывает кэш прав.
 
+- Находит ID группы по алиасу.
+- Переводит всех пользователей этой группы в стандартную группу Members (ID 4).
+- Удаляет связи, права и саму группу.
+- Очищает кеш прав.
+
+<a name="45-plugin-file-structure-ru"></a>
 ### 4.5. Структура файлов плагина
 
 ```
 plugins/user_demo_admin/
 ├── user_demo_admin.setup.php          — регистрация и настройки
-├── user_demo_admin.global.php         — защита от записи + stub
-├── user_demo_admin.admin.php          — основной интерфейс (tools)
+├── user_demo_admin.global.php         — защита от записи
+├── user_demo_admin.admin.php          — административный интерфейс (вкладки: список, создание, права)
 ├── inc/
-│   └── user_demo_admin.functions.php  — вся бизнес-логика
+│   └── user_demo_admin.functions.php  — бизнес-логика
 ├── lang/
-│   └── user_demo_admin.ru.lang.php    — русский язык
+│   └── user_demo_admin.ru.lang.php    — русский языковой файл
 ├── tpl/
 │   └── user_demo_admin.admin.tpl      — шаблон админки
 └── setup/
@@ -683,98 +676,73 @@ plugins/user_demo_admin/
 
 ---
 
+<a name="5-security-warnings-ru"></a>
 ## 5. Предупреждения безопасности
 
-Плагин **User Demo Admin** предоставляет довольно широкий доступ к административной информации. Несмотря на все предпринятые меры, следует учитывать следующие риски:
+1. **Обход защиты через нестандартные запросы.**  
+   Плагин блокирует все POST-запросы (кроме входа/выхода) и известные опасные GET-действия. Однако целеустремлённый злоумышленник может найти способ вызвать запись через неучтённый GET-параметр или прямой вызов скрипта. Глобальный хук покрывает большинство случаев, но 100% изоляция не гарантируется.
 
-1. **Обход защиты через прямые запросы.**  
-   Теоретически, зная структуру Cotonti, демо-пользователь может попытаться отправить нестандартный POST-запрос, не содержащий запрещённых параметров `a`. Защита блокирует большинство сценариев, но не гарантирует 100% изоляцию.
-
-2. **Утечка конфиденциальных данных.**  
-   Демо-админ может видеть email пользователей, настройки безопасности, пути к файлам, список установленных расширений и другую чувствительную информацию. Не давайте такой доступ незнакомым людям.
+2. **Раскрытие конфиденциальных данных.**  
+   Демо-администраторы могут видеть email пользователей, параметры конфигурации, пути к файлам, установленные расширения и другую чувствительную информацию. Предоставляйте доступ только доверенным лицам.
 
 3. **Влияние на производительность.**  
-   Пользователь с доступом в админку может открывать тяжёлые страницы (например, список всех пользователей с большим количеством записей), что может нагружать сервер. При необходимости ограничьте количество демо-пользователей.
+   Пользователи с доступом к админке могут открывать тяжёлые страницы (например, большие списки пользователей), что может нагрузить сервер. При необходимости ограничьте количество демо-пользователей.
 
-4. **Изменение прав через стандартный интерфейс.**  
-   Плагин блокирует права группы через `auth_rights_lock=254`, но если кто-то с полным доступом случайно снимет блокировку через прямое редактирование БД, демо-админ может повысить свои права. Регулярно проверяйте целостность настроек.
+4. **Блокировка прав.**  
+   Все права имеют `auth_rights_lock = 254`, что предотвращает изменение через стандартный интерфейс. Однако тот, у кого есть доступ к базе данных, может изменить это значение. Периодически проверяйте права группы.
 
-5. **Несовместимость с некоторыми сторонними плагинами.**  
-   Некоторые плагины могут выполнять сохранение через AJAX или альтернативные методы, не перехватываемые стандартным хуком `global`. В таких случаях защита может не сработать. Перед предоставлением демо-доступа протестируйте все критически важные расширения.
+5. **Несовместимость со сторонними плагинами.**  
+   Некоторые плагины могут использовать AJAX или другие методы, не перехватываемые глобальным хуком. Протестируйте критические расширения перед предоставлением демо-доступа.
 
-6. **Пароль демо-пользователя должен быть сложным.**  
-   Не используйте `demo`, `123456` и т.п. Рекомендуется генерировать надёжный пароль.
+6. **Надёжные пароли.**  
+   Всегда используйте стойкие пароли для демо-аккаунтов.
 
-7. **Не оставляйте демо-пользователей надолго.**  
-   После завершения демонстрации или тестирования удалите или заблокируйте таких пользователей.
-
-8. **Супер-администратор всегда может изменить права группы Demo Admin.**  
-   Следите за тем, чтобы права группы не были случайно расширены.
-
-**Рекомендации:**
-- Используйте плагин только для ограниченного круга доверенных лиц.
-- Не сообщайте демо-учётные данные публично.
-- Периодически проверяйте, что группа и права не были изменены.
-- При обнаружении попыток несанкционированного изменения – немедленно удалите демо-пользователя.
+7. **Удаляйте демо-пользователей, когда они больше не нужны.**  
+   Удалите или заблокируйте демо-аккаунты после завершения демонстрации или тестирования.
 
 ---
 
+<a name="6-recommendations-for-further-modification-ru"></a>
 ## 6. Рекомендации по дальнейшей модификации
 
-Плагин может быть расширен и адаптирован под конкретные задачи. Рассмотрим возможные направления:
+1. **Более тонкий контроль над блокируемыми действиями.**  
+   Расширьте список `$dangerousActions` или добавьте проверки шаблонов URL в `user_demo_admin.global.php`.
 
-1. **Более тонкая настройка запрещённых действий.**  
-   В файле `user_demo_admin.global.php` можно добавить дополнительные параметры или URL-шаблоны для блокировки. Например, запретить доступ к определённым разделам, оставив только просмотр.
+2. **Защита от AJAX.**  
+   Перехватывайте заголовок `X-Requested-With` (XMLHttpRequest) и аналогично блокируйте POST AJAX-запросы.
 
-2. **Поддержка AJAX-запросов.**  
-   Для полной защиты следует перехватывать также `XMLHttpRequest` (заголовок `X-Requested-With`) и блокировать POST-запросы, отправленные через AJAX.
+3. **Ведение журнала.**  
+   Добавьте вызовы `cot_log()` в блокирующую часть для записи попыток записи.
 
-3. **Разделение прав по модулям.**  
-   Через вкладку «Права» уже можно точечно запретить чтение отдельных модулей. Можно добавить функцию автоматического скрытия запрещённых пунктов меню.
+4. **Настраиваемые сообщения.**  
+   Замените стандартное предупреждение на более информативное.
 
-4. **Логирование действий демо-админа.**  
-   Полезно записывать в лог все попытки записи, чтобы отслеживать подозрительную активность. Для этого в блокирующей части можно добавить вызов `cot_log()`.
+5. **Английский языковой файл.**  
+   Создайте `user_demo_admin.en.lang.php` для мультиязычных сайтов.
 
-5. **Кастомизация сообщений.**  
-   Заменить стандартное предупреждение на более информативное, например, с указанием причины и возможных действий.
+6. **Белый список разрешённых разделов админки.**  
+   Вместо предоставления доступа ко всем модулям, реализуйте список разделов, которые демо-администраторы могут просматривать.
 
-6. **Интеграция с другими группами.**  
-   Можно создать несколько демо-групп с разными наборами прав, используя тот же механизм.
+7. **Перенос списка опасных действий в настройки плагина.**  
+   Позвольте администраторам редактировать список опасных действий из панели администрирования.
 
-7. **Добавить английский языковой файл**  
-   Для мультиязычных сайтов.
+8. **Баннер в шапке админки.**  
+   Отображайте постоянное уведомление «Демо-режим» для демо-администраторов.
 
-8. **Добавить настройку «Разрешённые разделы админки»**  
-   Вместо полного доступа можно реализовать whitelist разделов.
+9. **Поддержка дополнительных полей.**  
+   Если используются дополнительные поля пользователей, расширьте форму создания и вызов `cot_add_user()` соответствующим образом.
 
-9. **Вынести список `$dangerousActions` в настройки плагина**  
-   Чтобы администратор мог легко дополнять список опасных действий без правки кода.
-
-10. **Добавить хук после создания демо-пользователя**  
-   Например, `usersaddsadmin.add.done` или собственный хук для выполнения дополнительных действий.
-
-11. **При создании пользователя автоматически добавлять его в группу Members**  
-    Для более предсказуемого поведения на фронтенде (права наследуются от Members + Demo Admin).
-
-12. **Сделать баннер «Вы находитесь в режиме демонстрации»**  
-    Отображать предупреждение в шапке админки, чтобы демо-пользователь явно видел ограничения.
-
-13. **Поддержка экстраполей при создании пользователя**  
-    Если используются дополнительные поля пользователей, стоит добавить их обработку.
-
-**Чек-лист при доработке защиты от записи:**
-- Сохранение конфигурации.
-- Установка/удаление плагинов.
-- Редактирование прав.
-- Работа с structure и page.
+10. **Хук после создания пользователя.**  
+    Запускайте пользовательский хук после создания демо-пользователя для дополнительной обработки.
 
 ---
 
+<a name="7-conclusions-ru"></a>
 ## 7. Выводы
 
-Плагин **User Demo Admin** решает задачу предоставления ограниченного доступа к административной панели Cotonti с правами только на чтение. Благодаря комбинации стандартных прав (R на все объекты, A на админку) и дополнительной блокировки операций записи через глобальный хук, он обеспечивает приемлемый уровень безопасности для демонстрационных целей.
+Плагин **User Demo Admin** предоставляет надёжный способ предоставить доступ только для чтения к панели администрирования Cotonti. Он сочетает стандартные права (R на большинстве объектов, A на панели администратора) с дополнительным уровнем защиты от записи через глобальный хук. Административный интерфейс позволяет гибко управлять демо-пользователями и правами.
 
-Тем не менее, из-за архитектурных особенностей Cotonti (многие админские скрипты проверяют лишь наличие права A) полностью гарантировать невозможность записи штатными средствами сложно. Поэтому плагин следует использовать с осторожностью и только для доверенных пользователей.
+Из-за архитектуры Cotonti абсолютная защита от всех возможных попыток записи не может быть гарантирована, но плагин покрывает наиболее распространённые сценарии. Используйте его с осторожностью и только для доверенных пользователей.
 
-При необходимости плагин легко расширить, добавив дополнительные проверки, логирование или интеграцию с другими системами. Документация и структура кода позволяют разработчику быстро адаптировать его под свои нужды.
-
+Код хорошо структурирован и может быть легко расширен под конкретные нужды.
+```
