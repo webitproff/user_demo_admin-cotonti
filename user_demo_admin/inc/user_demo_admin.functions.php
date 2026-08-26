@@ -10,7 +10,7 @@
  * Path:     plugins/user_demo_admin/inc/user_demo_admin.functions.php
  *
  * @package user_demo_admin
- * @version 5.0.0
+ * @version 5.0.3
  * @author webitproff
  * @copyright Copyright (c) 2026 | https://github.com/webitproff
  * @license BSD
@@ -135,12 +135,13 @@ function cot_user_demo_admin_ensure_group(): ?int
     return $groupId;
 }
 
-
 /**
- * Проверяет, разрешён ли модуль/плагин для группы Demo Admin (бит R)
+ * Проверяет, разрешён ли модуль/плагин для группы Demo Admin
+ * (есть ли бит R)
  *
  * @param string $type  module|plug
  * @param string $code  код модуля или плагина
+ * @return bool
  */
 function cot_user_demo_admin_is_item_allowed(string $type, string $code): bool
 {
@@ -169,6 +170,7 @@ function cot_user_demo_admin_is_item_allowed(string $type, string $code): bool
         return false;
     }
 
+    // Достаточно бита R (1). Для плагинов с 129 он тоже есть.
     return (((int) $row['auth_rights'] & 1) === 1);
 }
 
@@ -216,12 +218,11 @@ function cot_user_demo_admin_set_right(
         }
     }
 }
-
 /**
- * Главная функция выдачи прав «только чтение»
- * - R на корень модуля
- * - R на ВСЕ категории структуры (критично для фронтенда)
- * - R на плагины
+ * Главная функция выдачи прав «только чтение» при создании группы
+ * - R на корень модулей
+ * - R на ВСЕ категории структуры (фронтенд)
+ * - R+A на плагины (чтобы открывался admin/other?p=...)
  */
 function cot_user_demo_admin_ensure_all_read(int $groupId): void
 {
@@ -238,10 +239,10 @@ function cot_user_demo_admin_ensure_all_read(int $groupId): void
                 continue;
             }
 
-            // Корень модуля
+            // Корень модуля — только чтение
             cot_user_demo_admin_set_right($groupId, $code, 'a', 1, 254);
 
-            // Все категории структуры этого модуля (page, forums и т.д.)
+            // Все категории структуры этого модуля
             if (!empty(Cot::$structure[$code]) && is_array(Cot::$structure[$code])) {
                 foreach (array_keys(Cot::$structure[$code]) as $cat) {
                     if ($cat === '' || $cat === 'all') {
@@ -253,16 +254,16 @@ function cot_user_demo_admin_ensure_all_read(int $groupId): void
         }
     }
 
-    // Активные плагины
+    // Активные плагины — R + A (129),
+    // чтобы демо-админ мог открывать admin/other?p=plugin
     $plugins = Cot::$db->query(
         'SELECT DISTINCT pl_code FROM ' . Cot::$db->plugins . ' WHERE pl_active = 1'
     )->fetchAll(PDO::FETCH_COLUMN);
 
     foreach ($plugins as $code) {
-        cot_user_demo_admin_set_right($groupId, 'plug', $code, 1, 254);
+        cot_user_demo_admin_set_right($groupId, 'plug', $code, 129, 254);
     }
 }
-
 /**
  * Returns flat list of permissions for the rights UI (только корень + плагины)
  *
@@ -324,34 +325,46 @@ function cot_user_demo_admin_get_permissions(int $groupId): array
 }
 
 /**
- * Sets allow/deny Read for one item from the rights UI
+ * Sets allow/deny for one item from the rights UI
+ *
+ * Смысл:
+ * - module/core:
+ *     Разрешено  = R (1)   — можно смотреть
+ *     Запрещено  = 0       — нельзя config/details
+ * - plug:
+ *     Разрешено  = R+A (129) — можно открыть admin/other?p=...
+ *     Запрещено  = 0         — нельзя details/tools
+ *
+ * Категории структуры всегда оставляем R=1 (фронтенд не ломаем)
  */
 function cot_user_demo_admin_set_permission(int $groupId, string $itemKey, bool $allowed): void
 {
-    $rights = $allowed ? 1 : 0;
-
     if (str_starts_with($itemKey, 'plug:')) {
         $code   = 'plug';
         $option = substr($itemKey, 5);
+        // Для плагинов нужен A, иначе tools-страницы дают 930
+        $rights = $allowed ? 129 : 0;
     } elseif (str_starts_with($itemKey, 'module:')) {
         $code   = substr($itemKey, 7);
         $option = 'a';
+        $rights = $allowed ? 1 : 0;
     } elseif (str_starts_with($itemKey, 'core:')) {
         $code   = substr($itemKey, 5);
         $option = 'a';
+        $rights = $allowed ? 1 : 0;
     } else {
         return;
     }
 
     cot_user_demo_admin_set_right($groupId, $code, $option, $rights, 254);
 
-    // Если это модуль со структурой — синхронно ставим R/запрет на все его категории
-    if ($option === 'a' && !empty(Cot::$structure[$code])) {
+    // Категории структуры — всегда только чтение
+    if ($option === 'a' && !empty(Cot::$structure[$code]) && is_array(Cot::$structure[$code])) {
         foreach (array_keys(Cot::$structure[$code]) as $cat) {
             if ($cat === '' || $cat === 'all') {
                 continue;
             }
-            cot_user_demo_admin_set_right($groupId, $code, $cat, $rights, 254);
+            cot_user_demo_admin_set_right($groupId, $code, $cat, 1, 254);
         }
     }
 }
