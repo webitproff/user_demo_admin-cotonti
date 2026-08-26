@@ -46,6 +46,16 @@ $p   = cot_import('p', 'G', 'ALP');   // для config = код расширен
 $mod = cot_import('mod', 'G', 'ALP');
 $pl  = cot_import('pl', 'G', 'ALP');
 $tab = cot_import('tab', 'G', 'ALP');
+/**
+ * ---------------------------------------------------------
+ * 0. Демо-админ не должен управлять этим плагином
+ * ---------------------------------------------------------
+ */
+if ($m === 'other' && $p === 'user_demo_admin') {
+    cot_message('Режим демонстрации: управление этим разделом запрещено.', 'warning');
+    cot_redirect(cot_url('admin'), '', true);
+    exit;
+}
 
 /**
  * ---------------------------------------------------------
@@ -81,12 +91,14 @@ if ($m === 'extensions' && $a === 'details') {
     }
 }
 
+
+
+
 /**
  * ---------------------------------------------------------
  * 2. Общая блокировка любых операций записи
  * ---------------------------------------------------------
  */
-
 $isWriteAttempt = false;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -94,10 +106,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $dangerousActions = [
-    'update', 'save', 'add', 'edit', 'delete', 'remove',
+    'update', 'save', 'add', 'edit', 'delete', 'remove', 'del',
     'install', 'uninstall', 'config', 'reset', 'import', 'export',
     'clone', 'move', 'sort', 'toggle', 'enable', 'disable',
-    'rights', 'extrafields', 'updateconfig', 'update_rights'
+    'rights', 'extrafields', 'updateconfig', 'update_rights',
+    'val', 'unval', 'validate', 'invalidate',
+    'read', 'unread', 'mark', 'status',
+    'send', 'reply', 'forward', 'archive', 'restore',
+    'publish', 'unpublish', 'approve', 'reject',
+    'ban', 'unban', 'lock', 'unlock'
 ];
 
 if ($a && in_array($a, $dangerousActions, true)) {
@@ -112,11 +129,13 @@ if ($m === 'rights' || $m === 'rightsbyitem') {
     $isWriteAttempt = true;
 }
 
-// Своё сохранение прав плагина настоящим админом не трогаем
-// (сюда демо-пользователь и так не попадёт из-за is_demo_user)
-$isOurRightsSave = ($p === 'user_demo_admin' && $tab === 'rights' && $a === 'save');
+// tools плагинов: любой a=... = изменение
+if ($m === 'other' && !empty($p) && !empty($a)) {
+    $isWriteAttempt = true;
+}
 
-if ($isWriteAttempt && !$isOurRightsSave) {
+// Никаких исключений для демо-пользователя
+if ($isWriteAttempt) {
     $_POST = [];
     $_GET['a'] = '';
     $_REQUEST = $_GET;
