@@ -22,7 +22,7 @@ Hooks=tools
  * Path:     plugins/user_demo_admin/user_demo_admin.admin.php
  *
  * @package user_demo_admin
- * @version 5.0.0
+ * @version 5.0.1
  * @author webitproff
  * @copyright Copyright (c) 2026 | https://github.com/webitproff
  * @license BSD
@@ -204,6 +204,7 @@ elseif ($tab === 'create') {
 
 /* ========== RIGHTS ========== */
 elseif ($tab === 'rights') {
+
     if ($a === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         cot_shield_protect();
 
@@ -214,19 +215,31 @@ elseif ($tab === 'rights') {
             cot_user_demo_admin_set_permission($groupId, $itemKey, $allowed);
         }
 
+        // Принудительно очищаем кеш прав у всех пользователей группы Demo Admin
+        Cot::$db->query(
+            'UPDATE ' . Cot::$db->users . ' SET user_auth = \'\' WHERE user_maingrp = ?',
+            [$groupId]
+        );
+
+        // Также чистим общие кеши прав
         cot_auth_reorder();
         cot_auth_clear('all');
 
         cot_message(Cot::$L['user_demo_admin_rights_saved']);
         cot_redirect(cot_url('admin', [
-            'm' => 'other', 'p' => 'user_demo_admin', 'tab' => 'rights'
+            'm' => 'other',
+            'p' => 'user_demo_admin',
+            'tab' => 'rights'
         ], '', true));
     }
 
     $permissions = cot_user_demo_admin_get_permissions($groupId);
 
     $t->assign('RIGHTS_FORM_ACTION', cot_url('admin', [
-        'm' => 'other', 'p' => 'user_demo_admin', 'tab' => 'rights', 'a' => 'save'
+        'm' => 'other',
+        'p' => 'user_demo_admin',
+        'tab' => 'rights',
+        'a' => 'save'
     ]));
 
     global $cot_modules, $cot_plugins_enabled;
