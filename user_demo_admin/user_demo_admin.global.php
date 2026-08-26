@@ -20,136 +20,60 @@ Hooks=global
  * @license BSD
  */
 
-defined('COT_CODE') or die('Wrong URL');
 
-// Только админка + авторизованный пользователь
-if (!defined('COT_ADMIN') || empty(Cot::$usr['id'])) {
-    return;
-}
+
+defined('COT_CODE') or die('Wrong URL');
 
 require_once cot_incfile('user_demo_admin', 'plug', 'functions');
 
-// Если это не демо-пользователь — выходим
+if (empty(Cot::$usr['id'])) {
+    return;
+}
+
 if (!cot_user_demo_admin_is_demo_user()) {
     return;
 }
 
-// === Демо-пользователь в админке ===
+$a = cot_import('a', 'G', 'ALP');
+$m = cot_import('m', 'G', 'ALP');
+$p = cot_import('p', 'G', 'ALP');
 
-Cot::$usr['auth_write'] = false;
+$isLoginLogout = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($m === 'login' || $a === 'logout'));
 
-$m   = cot_import('m', 'G', 'ALP');
-$a   = cot_import('a', 'G', 'ALP');
-$n   = cot_import('n', 'G', 'ALP');
-$o   = cot_import('o', 'G', 'ALP');
-$p   = cot_import('p', 'G', 'ALP');   // для config = код расширения
-$mod = cot_import('mod', 'G', 'ALP');
-$pl  = cot_import('pl', 'G', 'ALP');
-$tab = cot_import('tab', 'G', 'ALP');
-/**
- * ---------------------------------------------------------
- * 0. Демо-админ не должен управлять этим плагином
- * ---------------------------------------------------------
- */
-if ($m === 'other' && $p === 'user_demo_admin') {
-    cot_message('Режим демонстрации: управление этим разделом запрещено.', 'warning');
-    cot_redirect(cot_url('admin'), '', true);
-    exit;
-}
-
-/**
- * ---------------------------------------------------------
- * 1. Блокировка config и details запрещённых расширений
- * ---------------------------------------------------------
- */
-
-// /admin/config?n=edit&o=module&p=CODE
-// /admin/config?n=edit&o=plug&p=CODE
-if ($m === 'config' && $n === 'edit' && !empty($p) && in_array($o, ['module', 'mod', 'plug'], true)) {
-    $type = ($o === 'plug') ? 'plug' : 'module';
-
-    if (!cot_user_demo_admin_is_item_allowed($type, $p)) {
-        cot_message('Режим демонстрации: доступ к конфигурации этого раздела запрещён.', 'warning');
-        cot_redirect(cot_url('admin', ['m' => 'extensions'], '', true));
-        exit;
-    }
-}
-
-// /admin/extensions?a=details&mod=CODE
-// /admin/extensions?a=details&pl=CODE
-if ($m === 'extensions' && $a === 'details') {
-    if (!empty($mod) && !cot_user_demo_admin_is_item_allowed('module', $mod)) {
-        cot_message('Режим демонстрации: доступ к этому модулю запрещён.', 'warning');
-        cot_redirect(cot_url('admin', ['m' => 'extensions'], '', true));
-        exit;
-    }
-
-    if (!empty($pl) && !cot_user_demo_admin_is_item_allowed('plug', $pl)) {
-        cot_message('Режим демонстрации: доступ к этому плагину запрещён.', 'warning');
-        cot_redirect(cot_url('admin', ['m' => 'extensions'], '', true));
-        exit;
-    }
-}
-
-
-
-
-/**
- * ---------------------------------------------------------
- * 2. Общая блокировка любых операций записи
- * ---------------------------------------------------------
- */
-$isWriteAttempt = false;
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $isWriteAttempt = true;
-}
-
-$dangerousActions = [
-    'update', 'save', 'add', 'edit', 'delete', 'remove', 'del',
-    'install', 'uninstall', 'config', 'reset', 'import', 'export',
-    'clone', 'move', 'sort', 'toggle', 'enable', 'disable',
-    'rights', 'extrafields', 'updateconfig', 'update_rights',
-    'val', 'unval', 'validate', 'invalidate',
-    'read', 'unread', 'mark', 'status',
-    'send', 'reply', 'forward', 'archive', 'restore',
-    'publish', 'unpublish', 'approve', 'reject',
-    'ban', 'unban', 'lock', 'unlock'
-];
-
-if ($a && in_array($a, $dangerousActions, true)) {
-    $isWriteAttempt = true;
-}
-
-if ($m === 'config' && ($_SERVER['REQUEST_METHOD'] === 'POST' || $a === 'update')) {
-    $isWriteAttempt = true;
-}
-
-if ($m === 'rights' || $m === 'rightsbyitem') {
-    $isWriteAttempt = true;
-}
-
-// tools плагинов: любой a=... = изменение
-if ($m === 'other' && !empty($p) && !empty($a)) {
-    $isWriteAttempt = true;
-}
-
-// Никаких исключений для демо-пользователя
-if ($isWriteAttempt) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isLoginLogout) {
     $_POST = [];
     $_GET['a'] = '';
     $_REQUEST = $_GET;
-
-    cot_message(
-        'Режим демонстрации: изменения не сохраняются. Вы можете только просматривать интерфейс.',
-        'warning'
-    );
-
+    cot_message('Режим демонстрации: изменения не сохраняются. Вы можете только просматривать интерфейс.', 'warning');
     $referer = $_SERVER['HTTP_REFERER'] ?? '';
     if ($referer && cot_url_check($referer)) {
         cot_redirect($referer);
     } else {
         cot_redirect(cot_url('admin'));
     }
+    exit;
+}
+
+$dangerousActions = [
+    'update','save','add','edit','delete','remove','del',
+    'install','uninstall','config','reset','import','export',
+    'clone','move','sort','toggle','enable','disable',
+    'rights','extrafields','updateconfig','update_rights',
+    'val','unval','validate','invalidate',
+    'read','unread','mark','status',
+    'send','reply','forward','archive','restore',
+    'publish','unpublish','approve','reject',
+    'ban','unban','lock','unlock'
+];
+
+if ($a && in_array($a, $dangerousActions, true)) {
+    cot_message('Режим демонстрации: управление этим разделом запрещено.', 'warning');
+    cot_redirect(cot_url('admin'));
+    exit;
+}
+
+if ($m === 'other' && $p === 'user_demo_admin') {
+    cot_message('Режим демонстрации: управление этим разделом запрещено.', 'warning');
+    cot_redirect(cot_url('admin'));
     exit;
 }
