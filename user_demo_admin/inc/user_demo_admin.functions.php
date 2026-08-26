@@ -10,7 +10,7 @@
  * Path:     plugins/user_demo_admin/inc/user_demo_admin.functions.php
  *
  * @package user_demo_admin
- * @version 5.0.3
+ * @version 5.0.0
  * @author webitproff
  * @copyright Copyright (c) 2026 | https://github.com/webitproff
  * @license BSD
@@ -37,9 +37,10 @@ function cot_user_demo_admin_get_group(): ?int
 
     return $row ? (int) $row['grp_id'] : null;
 }
-
 /**
- * Checks whether current user belongs to Demo Admin group
+ * Проверка: текущий пользователь в группе Demo Admin.
+ * Группа ищется ТОЛЬКО по алиасу из настроек плагина.
+ * Никаких фиксированных grp_id.
  */
 function cot_user_demo_admin_is_demo_user(): bool
 {
@@ -53,26 +54,31 @@ function cot_user_demo_admin_is_demo_user(): bool
         return $result = false;
     }
 
+    // grp_id получаем только через алиас
     $groupId = cot_user_demo_admin_get_group();
     if (!$groupId) {
         return $result = false;
     }
 
     // Основная группа
-    if ((int) Cot::$usr['maingrp'] === $groupId) {
+    if ((int) Cot::$usr['maingrp'] === (int) $groupId) {
         return $result = true;
     }
 
-    // Дополнительные группы
+    // Дополнительные группы (без strict: в массиве могут быть строки)
     if (!empty(Cot::$usr['groups']) && is_array(Cot::$usr['groups'])) {
-        return $result = in_array($groupId, Cot::$usr['groups'], true);
+        foreach (Cot::$usr['groups'] as $gid) {
+            if ((int) $gid === (int) $groupId) {
+                return $result = true;
+            }
+        }
     }
 
-    // Запасной вариант — проверка в БД
+    // Проверка в БД
     $exists = Cot::$db->query(
         'SELECT 1 FROM ' . Cot::$db->groups_users .
         ' WHERE gru_userid = ? AND gru_groupid = ? LIMIT 1',
-        [Cot::$usr['id'], $groupId]
+        [(int) Cot::$usr['id'], (int) $groupId]
     )->fetchColumn();
 
     return $result = (bool) $exists;
