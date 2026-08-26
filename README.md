@@ -4,6 +4,10 @@
 **Author:** webitproff  
 **License:** BSD  
 **Requirements:** Cotonti (current version), users module
+___
+> The "User Demo Admin" plugin is a completely new and experimental extension for CMF Cotonti. Use it at your own risk. The plugin has not been fully tested to make bold statements. For the most part, the plugin solves my problems (as a developer), but I recommend that you use it with extreme caution!
+___
+<img width="1168" height="784" alt="User Demo Admin для Cotonti" src="https://github.com/user-attachments/assets/4597c6ed-e9ab-437b-be2b-155c157cb433" />
 
 ---
 
@@ -393,7 +397,9 @@ ___
 **Автор:** webitproff  
 **Лицензия:** BSD  
 **Требования:** Cotonti (актуальная версия), модуль users
-
+___
+> Плагин "User Demo Admin" - это совершенно новое и экспериментальное расширение для CMF Cotonti. Использовать на свой страх и риск. Плагин не обкатан в полной мере, что бы делать смелые заявления. В большей части плагин решает мои задачи (как разработчика), но вам рекомендую использовать с предельной осторожностью! 
+___
 ---
 
 ## Оглавление
