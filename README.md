@@ -357,12 +357,12 @@ plugins/user_demo_admin/
 
 The **User Demo Admin** plugin provides a reliable way to grant read‑only access to the Cotonti admin panel. It combines standard rights (R on most objects, A on the admin panel) with an extra layer of write protection via a global hook. The admin interface allows flexible management of demo users and permissions.
 
-Due to Cotonti’s architecture, absolute protection against all possible write attempts cannot be guaranteed, but the plugin covers the most common scenarios. Use it with caution and only for trusted users.
 
-The code is well‑structured and can be easily extended for specific needs.
 
 ___
-```markdown
+
+
+
 # Руководство по плагину User Demo Admin для Cotonti
 
 **Версия:** 5.0.1  
@@ -742,7 +742,5 @@ plugins/user_demo_admin/
 
 Плагин **User Demo Admin** предоставляет надёжный способ предоставить доступ только для чтения к панели администрирования Cotonti. Он сочетает стандартные права (R на большинстве объектов, A на панели администратора) с дополнительным уровнем защиты от записи через глобальный хук. Административный интерфейс позволяет гибко управлять демо-пользователями и правами.
 
-Из-за архитектуры Cotonti абсолютная защита от всех возможных попыток записи не может быть гарантирована, но плагин покрывает наиболее распространённые сценарии. Используйте его с осторожностью и только для доверенных пользователей.
 
-Код хорошо структурирован и может быть легко расширен под конкретные нужды.
-```
+
