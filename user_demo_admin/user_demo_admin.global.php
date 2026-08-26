@@ -7,47 +7,17 @@ Hooks=global
 
 /**
  * Filename: user_demo_admin.global.php
- * user_demo_admin Plugin: Global initialization
- * Подключает языковые файлы и функции плагина, при их явном подключении. 
- * в данном конкретном случае без него слетает кнопка администрирования в карточке расширения после жима "обновить"
  *
+ * Защита режима демонстрации:
+ * 1) Блокирует любые попытки записи в админке для Demo Admin
+ * 2) Блокирует доступ к config и details запрещённых модулей/плагинов
  *
- * Path:     plugins/user_demo_admin/user_demo_admin.global.php
- *
- * Extrafields Users Custom i18n plugin for Cotonti v1.+, PHP 8.5+, MySQL 8.4
- *
- * Source and updates   https://github.com/webitproff/user_demo_admin-cotonti
- * ReadMeMore:          https://abuyfile.com/ru/market/cotonti/plugs/user-demo-admin
- * Support:             https://abuyfile.com/ru/forums/cotonti/original/extrafields
- *
- * Date: Aug 25, 2026
+ * Path: plugins/user_demo_admin/user_demo_admin.global.php
  *
  * @package user_demo_admin
- * @version 5.0.0
+ * @version 5.0.1
  * @author webitproff
- * @copyright Copyright (c) webitproff 2026 | https://github.com/webitproff
  * @license BSD
- */
-defined('COT_CODE') or die('Wrong URL');
-// Global stub – plugin is loaded via tools hook
-
-
-/**
- * Global protection for Demo Admin users
- * Блокирует любые попытки сохранения/редактирования в админке
- */
-
-
-
-/**
- * Жёсткая защита режима демонстрации
- * Блокирует ВСЕ операции записи в админке для пользователей группы Demo Admin
- */
-
-
-/**
- * Защита режима демонстрации — блокирует запись ТОЛЬКО в админке.
- * На фронтенд не влияет.
  */
 
 defined('COT_CODE') or die('Wrong URL');
@@ -59,24 +29,69 @@ if (!defined('COT_ADMIN') || empty(Cot::$usr['id'])) {
 
 require_once cot_incfile('user_demo_admin', 'plug', 'functions');
 
+// Если это не демо-пользователь — выходим
 if (!cot_user_demo_admin_is_demo_user()) {
     return;
 }
 
 // === Демо-пользователь в админке ===
 
-// Отключаем запись
 Cot::$usr['auth_write'] = false;
 
-// Определяем попытку записи
+$m   = cot_import('m', 'G', 'ALP');
+$a   = cot_import('a', 'G', 'ALP');
+$n   = cot_import('n', 'G', 'ALP');
+$o   = cot_import('o', 'G', 'ALP');
+$p   = cot_import('p', 'G', 'ALP');   // для config = код расширения
+$mod = cot_import('mod', 'G', 'ALP');
+$pl  = cot_import('pl', 'G', 'ALP');
+$tab = cot_import('tab', 'G', 'ALP');
+
+/**
+ * ---------------------------------------------------------
+ * 1. Блокировка config и details запрещённых расширений
+ * ---------------------------------------------------------
+ */
+
+// /admin/config?n=edit&o=module&p=CODE
+// /admin/config?n=edit&o=plug&p=CODE
+if ($m === 'config' && $n === 'edit' && !empty($p) && in_array($o, ['module', 'mod', 'plug'], true)) {
+    $type = ($o === 'plug') ? 'plug' : 'module';
+
+    if (!cot_user_demo_admin_is_item_allowed($type, $p)) {
+        cot_message('Режим демонстрации: доступ к конфигурации этого раздела запрещён.', 'warning');
+        cot_redirect(cot_url('admin', ['m' => 'extensions'], '', true));
+        exit;
+    }
+}
+
+// /admin/extensions?a=details&mod=CODE
+// /admin/extensions?a=details&pl=CODE
+if ($m === 'extensions' && $a === 'details') {
+    if (!empty($mod) && !cot_user_demo_admin_is_item_allowed('module', $mod)) {
+        cot_message('Режим демонстрации: доступ к этому модулю запрещён.', 'warning');
+        cot_redirect(cot_url('admin', ['m' => 'extensions'], '', true));
+        exit;
+    }
+
+    if (!empty($pl) && !cot_user_demo_admin_is_item_allowed('plug', $pl)) {
+        cot_message('Режим демонстрации: доступ к этому плагину запрещён.', 'warning');
+        cot_redirect(cot_url('admin', ['m' => 'extensions'], '', true));
+        exit;
+    }
+}
+
+/**
+ * ---------------------------------------------------------
+ * 2. Общая блокировка любых операций записи
+ * ---------------------------------------------------------
+ */
+
 $isWriteAttempt = false;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $isWriteAttempt = true;
 }
-
-$a = cot_import('a', 'G', 'ALP');
-$m = cot_import('m', 'G', 'ALP');
 
 $dangerousActions = [
     'update', 'save', 'add', 'edit', 'delete', 'remove',
@@ -89,18 +104,19 @@ if ($a && in_array($a, $dangerousActions, true)) {
     $isWriteAttempt = true;
 }
 
-// Конфигурация
 if ($m === 'config' && ($_SERVER['REQUEST_METHOD'] === 'POST' || $a === 'update')) {
     $isWriteAttempt = true;
 }
 
-// Редактор прав
 if ($m === 'rights' || $m === 'rightsbyitem') {
     $isWriteAttempt = true;
 }
 
-if ($isWriteAttempt) {
-    // Очищаем данные
+// Своё сохранение прав плагина настоящим админом не трогаем
+// (сюда демо-пользователь и так не попадёт из-за is_demo_user)
+$isOurRightsSave = ($p === 'user_demo_admin' && $tab === 'rights' && $a === 'save');
+
+if ($isWriteAttempt && !$isOurRightsSave) {
     $_POST = [];
     $_GET['a'] = '';
     $_REQUEST = $_GET;
