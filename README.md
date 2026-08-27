@@ -5,7 +5,17 @@
 **License:** BSD  
 **Requirements:** Cotonti (current version), users module
 
+---
+[![Version](https://img.shields.io/badge/version-5.1.1-green.svg)](https://github.com/webitproff/user_demo_admin-cotonti/releases)
+[![Cotonti Compatibility](https://img.shields.io/badge/Cotonti-1.0-orange.svg)](https://github.com/Cotonti/Cotonti)
+[![PHP](https://img.shields.io/badge/PHP-8.5-purple.svg)](https://www.php.net/releases/8_5_6.php)
+[![MySQL](https://img.shields.io/badge/MySQL-8.4-blue.svg)](https://www.mysql.com/)
+[![Bootstrap v5.3.8](https://img.shields.io/badge/Bootstrap-v5.3.8-blueviolet.svg)](https://getbootstrap.com/)
+[![License](https://img.shields.io/badge/license-BSD-blue.svg)](https://github.com/webitproff/user_demo_admin-cotonti/blob/main/LICENSE)
+
+---
 > The "User Demo Admin" plugin is a completely new and experimental extension for CMF Cotonti. Use it at your own risk. The plugin has not been fully tested to make bold statements. For the most part, the plugin solves my problems (as a developer), but I recommend that you use it with extreme caution!
+---
 
 <img width="1168" height="784" alt="User Demo Admin для Cotonti" src="https://github.com/user-attachments/assets/4597c6ed-e9ab-437b-be2b-155c157cb433" />
 
