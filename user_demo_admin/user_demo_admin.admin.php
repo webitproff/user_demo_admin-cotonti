@@ -22,7 +22,7 @@ Hooks=tools
  * Path:     plugins/user_demo_admin/user_demo_admin.admin.php
  *
  * @package user_demo_admin
- * @version 5.0.1
+ * @version 5.1.1
  * @author webitproff
  * @copyright Copyright (c) 2026 | https://github.com/webitproff
  * @license BSD
@@ -35,7 +35,7 @@ Hooks=tools
 
 defined('COT_CODE') or die('Wrong URL');
 
-require_once cot_langfile('user_demo_admin', 'plug');
+// require_once cot_langfile('user_demo_admin', 'plug');
 require_once cot_langfile('users', 'module');
 require_once cot_incfile('forms');
 require_once cot_incfile('user_demo_admin', 'plug', 'functions');
