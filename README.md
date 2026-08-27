@@ -1,6 +1,6 @@
 # User Demo Admin Plugin Guide for Cotonti
 
-**Version:** 5.0.1  
+**Version:** 5.1.1  
 **Author:** webitproff  
 **License:** BSD  
 **Requirements:** Cotonti (current version), users module
@@ -365,7 +365,7 @@ ___
 
 # Руководство по плагину User Demo Admin для Cotonti
 
-**Версия:** 5.0.1  
+**Версия:** 5.1.1  
 **Автор:** webitproff  
 **Лицензия:** BSD  
 **Требования:** Cotonti (актуальная версия), модуль users
