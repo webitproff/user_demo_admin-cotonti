@@ -9,7 +9,7 @@
  * Path:     plugins/user_demo_admin/lang/user_demo_admin.ru.lang.php
  *
  * @package user_demo_admin
- * @version 5.0.0
+ * @version 5.1.0
  * @author webitproff
  * @copyright Copyright (c) 2026 | https://github.com/webitproff
  * @license BSD
@@ -55,3 +55,6 @@ $L['cfg_group_alias']      = 'Алиас группы';
 $L['cfg_group_alias_hint'] = 'Внутренний идентификатор группы (не меняйте без необходимости)';
 $L['cfg_perpage']          = 'Пользователей на странице';
 $L['cfg_perpage_hint']     = 'Количество записей в списке';
+
+$L['user_demo_admin_demo_mode_warning'] = 'Режим демонстрации: изменения не сохраняются. Вы можете только просматривать интерфейс.';
+$L['user_demo_admin_demo_mode_forbidden'] = 'Режим демонстрации: управление этим разделом запрещено.';
