@@ -1,25 +1,13 @@
 <?php
-/* ====================
-[BEGIN_COT_EXT]
-Hooks=tools
-[END_COT_EXT]
-==================== */
-
 /**
  * ============================================================
- * ДОКУМЕНТАЦИЯ ПО ХУКУ `tools` И ФАЙЛУ user_demo_admin.admin.php
+ * ДОКУМЕНТАЦИЯ ПО ФАЙЛУ user_demo_admin.functions.php
  * ============================================================
  *
- * Хук `tools` в Cotonti используется для подключения административных страниц
- * плагинов через раздел «Администрирование» (admin.php?m=other&p=<код_плагина>).
+ * Файл содержит функции для управления группой демо-администратора
+ * и её правами в системе Cotonti.
  *
- * Файл user_demo_admin.admin.php является точкой входа в админ-панель плагина
- * и обрабатывает действия:
- *   - просмотр списка демо-администраторов;
- *   - создание нового пользователя с правами демо-администратора;
- *   - настройка прав группы демо-администраторов.
- *
- * Path:     plugins/user_demo_admin/user_demo_admin.admin.php
+ * Path:     plugins/user_demo_admin/inc/user_demo_admin.functions.php
  *
  * @package user_demo_admin
  * @version 5.1.1
@@ -29,252 +17,399 @@ Hooks=tools
  */
 
 /**
- * Admin panel for User Demo Admin
- * Path: plugins/user_demo_admin/user_demo_admin.admin.php
+ * Helper functions for User Demo Admin
+ * Path: plugins/user_demo_admin/inc/user_demo_admin.functions.php
  */
 
 defined('COT_CODE') or die('Wrong URL');
+require_once cot_langfile('user_demo_admin', 'plug');
 
-// require_once cot_langfile('user_demo_admin', 'plug');
-require_once cot_langfile('users', 'module');
-require_once cot_incfile('forms');
-require_once cot_incfile('user_demo_admin', 'plug', 'functions');
+/**
+ * Returns group ID by configured alias
+ */
+function cot_user_demo_admin_get_group(): ?int
+{
+    $alias = Cot::$cfg['plugin']['user_demo_admin']['group_alias'] ?? 'demo_admin';
 
+    $row = Cot::$db->query(
+        'SELECT grp_id FROM ' . Cot::$db->groups . ' WHERE grp_alias = ? LIMIT 1',
+        [$alias]
+    )->fetch();
 
-// Демо-админ не имеет права заходить в управление этим плагином
-if (cot_user_demo_admin_is_demo_user()) {
-    cot_die_message(930);
+    return $row ? (int) $row['grp_id'] : null;
 }
+/**
+ * Проверка: текущий пользователь в группе Demo Admin.
+ * Группа ищется ТОЛЬКО по алиасу из настроек плагина.
+ * Никаких фиксированных grp_id.
+ */
+function cot_user_demo_admin_is_demo_user(): bool
+{
+    static $result = null;
 
-
-// Only real admins
-list(, , $isadmin) = cot_auth('admin', 'a');
-if (Cot::$usr['maingrp'] == COT_GROUP_SUPERADMINS) {
-    $isadmin = true;
-}
-cot_block($isadmin);
-
-$tab = cot_import('tab', 'G', 'ALP') ?: 'list';
-$a   = cot_import('a', 'G', 'ALP');
-
-$t = new XTemplate(cot_tplfile('user_demo_admin.admin', 'plug', true));
-
-// Guarantee group + rights
-$groupId = cot_user_demo_admin_ensure_group();
-if (!$groupId) {
-    cot_error(Cot::$L['user_demo_admin_group_error']);
-    cot_display_messages($t);
-    $t->parse('MAIN');
-    $pluginBody = $t->text('MAIN');
-    return;
-}
-
-$t->assign([
-    'PHP.tab'           => $tab,
-    'TAB_LIST_ACTIVE'   => $tab === 'list'   ? 'active' : '',
-    'TAB_CREATE_ACTIVE' => $tab === 'create' ? 'active' : '',
-    'TAB_RIGHTS_ACTIVE' => $tab === 'rights' ? 'active' : '',
-    'URL_LIST'          => cot_url('admin', ['m' => 'other', 'p' => 'user_demo_admin', 'tab' => 'list']),
-    'URL_CREATE'        => cot_url('admin', ['m' => 'other', 'p' => 'user_demo_admin', 'tab' => 'create']),
-    'URL_RIGHTS'        => cot_url('admin', ['m' => 'other', 'p' => 'user_demo_admin', 'tab' => 'rights']),
-]);
-
-/* ========== LIST ========== */
-if ($tab === 'list') {
-    $perPage = (int) (Cot::$cfg['plugin']['user_demo_admin']['perpage'] ?? 20);
-    list($pg, $d, $durl) = cot_import_pagenav('d', $perPage);
-
-    $total = (int) Cot::$db->query(
-        'SELECT COUNT(*) FROM ' . Cot::$db->users . ' WHERE user_maingrp = ?',
-        [$groupId]
-    )->fetchColumn();
-
-    $items = Cot::$db->query(
-        'SELECT user_id, user_name, user_email, user_regdate
-         FROM ' . Cot::$db->users . '
-         WHERE user_maingrp = ?
-         ORDER BY user_id DESC
-         LIMIT ' . (int) $d . ', ' . (int) $perPage,
-        [$groupId]
-    )->fetchAll();
-
-    $t->assign('LIST_TOTAL', $total);
-
-    if ($items) {
-        foreach ($items as $row) {
-            $t->assign([
-                'LIST_ROW_ID'      => $row['user_id'],
-                'LIST_ROW_NAME'    => htmlspecialchars($row['user_name']),
-                'LIST_ROW_EMAIL'   => htmlspecialchars($row['user_email']),
-                'LIST_ROW_REGDATE' => cot_date('datetime_medium', $row['user_regdate']),
-                'LIST_ROW_URL'     => cot_url('users', ['m' => 'details', 'id' => $row['user_id']]),
-            ]);
-            $t->parse('MAIN.LIST_ROW');
-        }
-    } else {
-        $t->parse('MAIN.LIST_EMPTY');
+    if ($result !== null) {
+        return $result;
     }
 
-    $pagenav = cot_pagenav(
-        'admin',
-        ['m' => 'other', 'p' => 'user_demo_admin', 'tab' => 'list'],
-        $d,
-        $total,
-        $perPage,
-        'd'
-    );
-    $t->assign(cot_generatePaginationTags($pagenav));
-}
+    if (empty(Cot::$usr['id'])) {
+        return $result = false;
+    }
 
-/* ========== CREATE ========== */
-elseif ($tab === 'create') {
-    $username = $email = '';
+    // grp_id получаем только через алиас
+    $groupId = cot_user_demo_admin_get_group();
+    if (!$groupId) {
+        return $result = false;
+    }
 
-    if ($a === 'add' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-        cot_shield_protect();
+    // Основная группа
+    if ((int) Cot::$usr['maingrp'] === (int) $groupId) {
+        return $result = true;
+    }
 
-        $username  = cot_import('username', 'P', 'TXT', 100, true);
-        $email     = cot_import('email', 'P', 'TXT', 64, true);
-        $password1 = (string) cot_import('password1', 'P', 'NOC', 32);
-        $password2 = (string) cot_import('password2', 'P', 'NOC', 32);
-
-        if (empty($username) || mb_strlen($username) < 2) {
-            cot_error('aut_usernametooshort', 'username');
-        }
-        if (preg_match('/[<>#\'"\/]/', $username)) {
-            cot_error('aut_invalidloginchars', 'username');
-        }
-        if (!cot_check_email($email)) {
-            cot_error('aut_emailtooshort', 'email');
-        }
-        if (mb_strlen($password1) < 4) {
-            cot_error('aut_passwordtooshort', 'password1');
-        }
-        if ($password1 !== $password2) {
-            cot_error('aut_passwordmismatch', 'password2');
-        }
-
-        $exists = Cot::$db->query(
-            'SELECT user_id FROM ' . Cot::$db->users . ' WHERE user_name = ? LIMIT 1',
-            [$username]
-        )->fetch();
-        if ($exists) {
-            cot_error('aut_usernamealreadyindb', 'username');
-        }
-
-        $emailExists = Cot::$db->query(
-            'SELECT user_id FROM ' . Cot::$db->users . ' WHERE user_email = ? LIMIT 1',
-            [$email]
-        )->fetch();
-        if ($emailExists && empty(Cot::$cfg['useremailduplicate'])) {
-            cot_error('aut_emailalreadyindb', 'email');
-        }
-
-        if (!cot_error_found()) {
-            $ruser = [
-                'user_name'      => $username,
-                'user_email'     => mb_strtolower($email),
-                'user_password'  => $password1,
-                'user_maingrp'   => $groupId,
-                'user_hideemail' => 1,
-                'user_country'   => '',
-                'user_timezone'  => Cot::$cfg['defaulttimezone'] ?? 'UTC',
-                'user_gender'    => 'U',
-                'user_theme'     => Cot::$cfg['defaulttheme'] ?? '',
-                'user_scheme'    => Cot::$cfg['defaultscheme'] ?? '',
-                'user_lang'      => Cot::$cfg['defaultlang'] ?? '',
-            ];
-
-            $userid = cot_add_user($ruser, null, null, null, $groupId, false);
-
-            if ($userid) {
-                cot_message(Cot::$L['user_demo_admin_created']);
-                cot_redirect(cot_url('admin', [
-                    'm' => 'other', 'p' => 'user_demo_admin', 'tab' => 'list'
-                ], '', true));
-            } else {
-                cot_error(Cot::$L['user_demo_admin_create_failed']);
+    // Дополнительные группы (без strict: в массиве могут быть строки)
+    if (!empty(Cot::$usr['groups']) && is_array(Cot::$usr['groups'])) {
+        foreach (Cot::$usr['groups'] as $gid) {
+            if ((int) $gid === (int) $groupId) {
+                return $result = true;
             }
         }
     }
 
-    $t->assign([
-        'CREATE_FORM_ACTION' => cot_url('admin', [
-            'm' => 'other', 'p' => 'user_demo_admin', 'tab' => 'create', 'a' => 'add'
-        ]),
-        'CREATE_USERNAME'  => cot_inputbox('text', 'username', htmlspecialchars($username), 'class="form-control"'),
-        'CREATE_EMAIL'     => cot_inputbox('text', 'email', htmlspecialchars($email), 'class="form-control"'),
-        'CREATE_PASSWORD1' => cot_inputbox('password', 'password1', '', 'class="form-control"'),
-        'CREATE_PASSWORD2' => cot_inputbox('password', 'password2', '', 'class="form-control"'),
-    ]);
+    // Проверка в БД
+    $exists = Cot::$db->query(
+        'SELECT 1 FROM ' . Cot::$db->groups_users .
+        ' WHERE gru_userid = ? AND gru_groupid = ? LIMIT 1',
+        [(int) Cot::$usr['id'], (int) $groupId]
+    )->fetchColumn();
+
+    return $result = (bool) $exists;
 }
 
-/* ========== RIGHTS ========== */
-elseif ($tab === 'rights') {
+/**
+ * Creates the Demo Admin group (if missing) and guarantees correct rights
+ */
+ 
+/**
+ * Creates the Demo Admin group (if missing) and guarantees correct rights
+ */
+function cot_user_demo_admin_ensure_group(): ?int
+{
+    $groupId = cot_user_demo_admin_get_group();
+    $isNewGroup = false;
 
-    if ($a === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-        cot_shield_protect();
+    if (!$groupId) {
+        $alias = Cot::$cfg['plugin']['user_demo_admin']['group_alias'] ?? 'demo_admin';
 
-        $permissions = cot_import('permission', 'P', 'ARR') ?: [];
-
-        foreach ($permissions as $itemKey => $val) {
-            $allowed = ((int) $val === 1);
-            cot_user_demo_admin_set_permission($groupId, $itemKey, $allowed);
-        }
-
-        // Принудительно очищаем кеш прав у всех пользователей группы Demo Admin
-        Cot::$db->query(
-            'UPDATE ' . Cot::$db->users . ' SET user_auth = \'\' WHERE user_maingrp = ?',
-            [$groupId]
-        );
-
-        // Также чистим общие кеши прав
-        cot_auth_reorder();
-        cot_auth_clear('all');
-
-        cot_message(Cot::$L['user_demo_admin_rights_saved']);
-        cot_redirect(cot_url('admin', [
-            'm' => 'other',
-            'p' => 'user_demo_admin',
-            'tab' => 'rights'
-        ], '', true));
-    }
-
-    $permissions = cot_user_demo_admin_get_permissions($groupId);
-
-    $t->assign('RIGHTS_FORM_ACTION', cot_url('admin', [
-        'm' => 'other',
-        'p' => 'user_demo_admin',
-        'tab' => 'rights',
-        'a' => 'save'
-    ]));
-
-    global $cot_modules, $cot_plugins_enabled;
-
-    foreach ($permissions as $itemKey => $allowed) {
-        if (str_starts_with($itemKey, 'core:')) {
-            $code  = substr($itemKey, 5);
-            $title = Cot::$L['adm_code'][$code] ?? $code;
-        } elseif (str_starts_with($itemKey, 'module:')) {
-            $code  = substr($itemKey, 7);
-            $title = $cot_modules[$code]['title'] ?? $code;
-        } elseif (str_starts_with($itemKey, 'plug:')) {
-            $code  = substr($itemKey, 5);
-            $title = $cot_plugins_enabled[$code]['title'] ?? $code;
-        } else {
-            continue;
-        }
-
-        $t->assign([
-            'RIGHTS_ROW_CODE'          => htmlspecialchars($itemKey),
-            'RIGHTS_ROW_TITLE'         => htmlspecialchars($title),
-            'RIGHTS_ROW_ALLOW_CHECKED' => $allowed ? 'checked="checked"' : '',
-            'RIGHTS_ROW_DENY_CHECKED'  => !$allowed ? 'checked="checked"' : '',
+        $ok = Cot::$db->insert(Cot::$db->groups, [
+            'grp_name'         => 'Demo Admin',
+            'grp_title'        => 'Demo Admin',
+            'grp_level'        => 50,
+            'grp_disabled'     => 0,
+            'grp_skiprights'   => 0,
+            'grp_alias'        => $alias,
+            'grp_desc'         => 'Read-only demo administrators (view only)',
+            'grp_icon'         => '',
+            'grp_ownerid'      => (int) (Cot::$usr['id'] ?? 0),
+            'grp_maintenance'  => 0,
+            'grp_pfs_maxfile'  => 0,
+            'grp_pfs_maxtotal' => 0,
         ]);
-        $t->parse('MAIN.RIGHTS_ROW');
+
+        if (!$ok) {
+            return null;
+        }
+
+        //$groupId = (int) Cot::$db->lastInsertId();
+        //$isNewGroup = true;
+		// при сбое вставки lastInsertId() может вернуть 0; дальнейшая работа с ID=0 приведёт к ошибкам.
+		$groupId = (int) Cot::$db->lastInsertId();
+		if ($groupId <= 0) {
+			return null;
+		}
+		$isNewGroup = true;
     }
+
+    // Критически важные права всегда поддерживаем
+    // admin = R + A (чтобы пускало в админку)
+    // users = R
+    cot_user_demo_admin_set_right($groupId, 'admin', 'a', 129, 254);
+    cot_user_demo_admin_set_right($groupId, 'users', 'a', 1, 254);
+
+    // Полный сброс всех прав в «только чтение» делаем
+    // ТОЛЬКО при первом создании группы.
+    // Иначе при каждом открытии вкладки «Права» всё будет сбрасываться.
+    if ($isNewGroup) {
+        cot_user_demo_admin_ensure_all_read($groupId);
+    }
+
+	// эти вызовы сбрасывают кеш при каждом открытии страницы плагина, создавая ненужную нагрузку.
+    // cot_auth_reorder();
+    // cot_auth_clear('all');
+
+    return $groupId;
 }
 
-cot_display_messages($t);
-$t->parse('MAIN');
-$pluginBody = $t->text('MAIN');
+/**
+ * Проверяет, разрешён ли модуль/плагин для группы Demo Admin
+ * (есть ли бит R)
+ *
+ * @param string $type  module|plug
+ * @param string $code  код модуля или плагина
+ * @return bool
+ */
+function cot_user_demo_admin_is_item_allowed(string $type, string $code): bool
+{
+    $groupId = cot_user_demo_admin_get_group();
+    if (!$groupId || $code === '') {
+        return false;
+    }
+
+    if ($type === 'plug') {
+        $authCode = 'plug';
+        $option   = $code;
+    } else {
+        // module / core
+        $authCode = $code;
+        $option   = 'a';
+    }
+
+    $row = Cot::$db->query(
+        'SELECT auth_rights FROM ' . Cot::$db->auth .
+        ' WHERE auth_groupid = ? AND auth_code = ? AND auth_option = ? LIMIT 1',
+        [$groupId, $authCode, $option]
+    )->fetch();
+
+    // Нет записи = нет прав
+    if (!$row) {
+        return false;
+    }
+
+    // Достаточно бита R (1). Для плагинов с 129 он тоже есть.
+    return (((int) $row['auth_rights'] & 1) === 1);
+}
+
+/**
+ * Sets / updates a single auth row
+ *
+ * @param int $groupId  ID группы
+ * @param string $code  auth_code
+ * @param string $option auth_option
+ * @param int $rights   битовая маска прав (1 = R, 129 = R+A и т.д.)
+ * @param int $lock     auth_rights_lock (что нельзя менять через редактор прав)
+ */
+function cot_user_demo_admin_set_right(
+    int $groupId,
+    string $code,
+    string $option,
+    int $rights,
+    int $lock = 254
+): void {
+    $exists = Cot::$db->query(
+        'SELECT auth_id, auth_rights, auth_rights_lock FROM ' . Cot::$db->auth .
+        ' WHERE auth_groupid = ? AND auth_code = ? AND auth_option = ?',
+        [$groupId, $code, $option]
+    )->fetch();
+
+    $data = [
+        'auth_rights'      => $rights,
+        'auth_rights_lock' => $lock,
+        'auth_setbyuserid' => (int) (Cot::$usr['id'] ?? 0),
+    ];
+
+    if (!$exists) {
+        $data['auth_groupid'] = $groupId;
+        $data['auth_code']    = $code;
+        $data['auth_option']  = $option;
+        Cot::$db->insert(Cot::$db->auth, $data);
+    } else {
+        // Обновляем только если значения изменились
+        if ((int) $exists['auth_rights'] !== $rights || (int) $exists['auth_rights_lock'] !== $lock) {
+            Cot::$db->update(
+                Cot::$db->auth,
+                $data,
+                'auth_id = ' . (int) $exists['auth_id']
+            );
+        }
+    }
+}
+/**
+ * Главная функция выдачи прав «только чтение» при создании группы
+ * - R на корень модулей
+ * - R на ВСЕ категории структуры (фронтенд)
+ * - R+A на плагины (чтобы открывался admin/other?p=...)
+ */
+function cot_user_demo_admin_ensure_all_read(int $groupId): void
+{
+    // Специальные коды ядра
+    foreach (['message', 'structure'] as $code) {
+        cot_user_demo_admin_set_right($groupId, $code, 'a', 1, 254);
+    }
+
+    // Модули
+    global $cot_modules;
+    if (!empty($cot_modules) && is_array($cot_modules)) {
+        foreach (array_keys($cot_modules) as $code) {
+            if (in_array($code, ['admin', 'users'], true)) {
+                continue;
+            }
+
+            // Корень модуля — только чтение
+            cot_user_demo_admin_set_right($groupId, $code, 'a', 1, 254);
+
+            // Все категории структуры этого модуля
+            if (!empty(Cot::$structure[$code]) && is_array(Cot::$structure[$code])) {
+                foreach (array_keys(Cot::$structure[$code]) as $cat) {
+                    if ($cat === '' || $cat === 'all') {
+                        continue;
+                    }
+                    cot_user_demo_admin_set_right($groupId, $code, $cat, 1, 254);
+                }
+            }
+        }
+    }
+
+    // Активные плагины — R + A (129),
+    // чтобы демо-админ мог открывать admin/other?p=plugin
+    $plugins = Cot::$db->query(
+        'SELECT DISTINCT pl_code FROM ' . Cot::$db->plugins . ' WHERE pl_active = 1'
+    )->fetchAll(PDO::FETCH_COLUMN);
+
+    foreach ($plugins as $code) {
+        cot_user_demo_admin_set_right($groupId, 'plug', $code, 129, 254);
+    }
+}
+/**
+ * Returns flat list of permissions for the rights UI (только корень + плагины)
+ *
+ * ВАЖНО: в SQL обязательно используются скобки,
+ * иначе из-за приоритета AND/OR возвращаются права чужих групп.
+ */
+function cot_user_demo_admin_get_permissions(int $groupId): array
+{
+    global $cot_modules;
+
+    $map = [];
+
+    // Исправленный запрос — скобки обязательны!
+    $sql = Cot::$db->query(
+        'SELECT auth_code, auth_option, auth_rights FROM ' . Cot::$db->auth .
+        ' WHERE auth_groupid = ? AND (auth_option = \'a\' OR auth_code = \'plug\')',
+        [$groupId]
+    );
+
+    while ($row = $sql->fetch()) {
+        if ($row['auth_code'] === 'plug') {
+            $key = 'plug:' . $row['auth_option'];
+        } elseif (in_array($row['auth_code'], ['message', 'structure'], true)) {
+            $key = 'core:' . $row['auth_code'];
+        } else {
+            $key = 'module:' . $row['auth_code'];
+        }
+        $map[$key] = ((int) $row['auth_rights'] & 1) === 1;
+    }
+
+    $result = [];
+
+    // Core
+    foreach (['message', 'structure'] as $code) {
+        //$result['core:' . $code] = $map['core:' . $code] ?? true;
+		// Причина: если записи в cot_auth нет, реального доступа нет, а интерфейс показывал «разрешено». 
+		// Теперь будет «запрещено», что соответствует действительности.
+		$result['core:' . $code] = $map['core:' . $code] ?? false;
+    }
+
+    // Modules
+    if (!empty($cot_modules)) {
+        foreach (array_keys($cot_modules) as $code) {
+            if (in_array($code, ['admin', 'users'], true)) {
+                continue;
+            }
+            // $result['module:' . $code] = $map['module:' . $code] ?? true;
+			$result['module:' . $code] = $map['module:' . $code] ?? false;
+        }
+    }
+
+    // Plugins
+    $plugins = Cot::$db->query(
+        'SELECT DISTINCT pl_code FROM ' . Cot::$db->plugins . ' WHERE pl_active = 1'
+    )->fetchAll(PDO::FETCH_COLUMN);
+
+    foreach ($plugins as $code) {
+        // $result['plug:' . $code] = $map['plug:' . $code] ?? true;
+		$result['plug:' . $code] = $map['plug:' . $code] ?? false;
+    }
+
+    ksort($result);
+    return $result;
+}
+
+/**
+ * Sets allow/deny for one item from the rights UI
+ *
+ * Смысл:
+ * - module/core:
+ *     Разрешено  = R (1)   — можно смотреть
+ *     Запрещено  = 0       — нельзя config/details
+ * - plug:
+ *     Разрешено  = R+A (129) — можно открыть admin/other?p=...
+ *     Запрещено  = 0         — нельзя details/tools
+ *
+ * Категории структуры всегда оставляем R=1 (фронтенд не ломаем)
+ */
+function cot_user_demo_admin_set_permission(int $groupId, string $itemKey, bool $allowed): void
+{
+    if (str_starts_with($itemKey, 'plug:')) {
+        $code   = 'plug';
+        $option = substr($itemKey, 5);
+        // Для плагинов нужен A, иначе tools-страницы дают 930
+        $rights = $allowed ? 129 : 0;
+    } elseif (str_starts_with($itemKey, 'module:')) {
+        $code   = substr($itemKey, 7);
+        $option = 'a';
+        $rights = $allowed ? 1 : 0;
+    } elseif (str_starts_with($itemKey, 'core:')) {
+        $code   = substr($itemKey, 5);
+        $option = 'a';
+        $rights = $allowed ? 1 : 0;
+    } else {
+        return;
+    }
+
+    cot_user_demo_admin_set_right($groupId, $code, $option, $rights, 254);
+
+    // Категории структуры — всегда только чтение
+    if ($option === 'a' && !empty(Cot::$structure[$code]) && is_array(Cot::$structure[$code])) {
+        foreach (array_keys(Cot::$structure[$code]) as $cat) {
+            if ($cat === '' || $cat === 'all') {
+                continue;
+            }
+            cot_user_demo_admin_set_right($groupId, $code, $cat, 1, 254);
+        }
+    }
+	Cot::$db->update(Cot::$db->users, ['user_auth' => ''], 'user_maingrp = ?', [$groupId]);
+	cot_auth_clear('all');
+}
+/**
+ * Возвращает текущий URL без опасных параметров действия.
+ */
+function cot_demo_admin_get_current_url_without_dangerous_params() {
+    global $actionParams;
+    $urlParts = parse_url($_SERVER['REQUEST_URI']);
+    $path = $urlParts['path'] ?? '';
+    $queryParams = [];
+    if (isset($urlParts['query'])) {
+        parse_str($urlParts['query'], $queryParams);
+    }
+    foreach ($actionParams as $param) {
+        unset($queryParams[$param]);
+    }
+    $newQuery = http_build_query($queryParams, '', '&', PHP_QUERY_RFC3986);
+    $url = $path;
+    if ($newQuery !== '') {
+        $url .= '?' . $newQuery;
+    }
+    if (isset($urlParts['fragment'])) {
+        $url .= '#' . $urlParts['fragment'];
+    }
+    return $url;
+}
