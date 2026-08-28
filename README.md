@@ -1,9 +1,22 @@
 # User Demo Admin Plugin Guide for Cotonti
 
-**Version:** 5.1.1  
-**Author:** webitproff  
+**Version:** 5.3.1  
+**Date:** Aug 29, 2026
+**Author:** **[webitproff](https://github.com/webitproff)**  
 **License:** BSD  
-**Requirements:** Cotonti (current version), users module
+**Requirements:** Cotonti **v.1.+**, users module
+
+**[Source and updates](https://github.com/webitproff/user_demo_admin-cotonti)**
+
+**[ReadMeMore](https://abuyfile.com/ru/market/cotonti/plugs/user-demo-admin)**
+
+**[Support](https://abuyfile.com/ru/forums/cotonti/custom/plugs)**
+
+**[Authorization Management API](https://github.com/Cotonti/Cotonti/blob/master/system/auth.php)**    
+
+**[Group constants](https://github.com/Cotonti/Cotonti/blob/f43f1fc38ba4e02027786dad9dac1435c7c52b30/system/functions.php#L32)**
+
+**[User and Authorization Subsystem](https://github.com/Cotonti/Cotonti/blob/f43f1fc38ba4e02027786dad9dac1435c7c52b30/system/functions.php#L1709)**
 
 ---
 [![Version](https://img.shields.io/badge/version-5.1.1-green.svg)](https://github.com/webitproff/user_demo_admin-cotonti/releases)
