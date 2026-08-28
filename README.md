@@ -2,6 +2,7 @@
 
 **Version:** 5.3.1  
 **Date:** Aug 29, 2026
+
 **Author:** **[webitproff](https://github.com/webitproff)**  
 **License:** BSD  
 **Requirements:** Cotonti **v.1.+**, users module
